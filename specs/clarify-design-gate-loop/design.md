@@ -315,6 +315,11 @@ Rules:
 - Only accepted issues are passed to the refiner as required changes.
 - Rejected and deferred issues are recorded for traceability and final handoff.
 - Discussed issues remain pending until resolved or explicitly deferred/rejected/accepted.
+- `discuss` / `needs-discussion` is a blocking state for the current cross-review round. The workflow must not enter `REFINE` while any issue from the active round remains in this state.
+- When issues are marked `discuss`, the state should record their IDs in `pendingDecisions`, write them to the decisions artifact, and resume directly at `ISSUE_DECISION_GATE` with a clear pending-discussion summary.
+- On `/clarify --resume`, if pending discussion issues exist, the user should see the issue IDs, titles, severity, previous discussion notes/reason, and the required resolution choices: `accept`, `reject`, or `defer`. `discuss` may be chosen again only if the user adds new discussion notes or asks a concrete follow-up question.
+- The design-level `approve-for-spec-plan` action must be unavailable while `pendingDecisions` contains unresolved discussion issues. If the user attempts to approve, the system should refuse approval, list the unresolved issues, and route the user back to `ISSUE_DECISION_GATE` to resolve or defer them.
+- If the user wants to proceed without applying a discussed issue, they must explicitly choose `defer`; silent approval with unresolved discussion items is not allowed.
 
 This avoids both automatic scope expansion and accidental omission of lower-severity but meaningful findings.
 
@@ -467,7 +472,13 @@ If refiner output fails schema or safety validation:
 
 ### Pending Discuss Decisions
 
-If the user marks issues as `discuss`, those issues remain pending. The workflow should not refine until pending discussions are resolved to accept/reject/defer, unless the user explicitly defers them.
+If the user marks issues as `discuss`, those issues remain pending and block the current cross-review round.
+
+- The workflow must stay in or resume to `ISSUE_DECISION_GATE` until every discussed issue is resolved to `accept`, `reject`, or `defer`.
+- `REFINE` must not run while active-round discussed issues remain unresolved.
+- `approve-for-spec-plan` must be blocked while `pendingDecisions` contains unresolved discussed issues.
+- On resume, the system should summarize pending discussion issues before asking for decisions so the user cannot forget them.
+- If the user no longer wants to handle a discussed issue, the explicit resolution is `defer`; unresolved discussion cannot be silently treated as approval.
 
 ### Path Safety
 
@@ -485,6 +496,9 @@ Generated or edited topics must be sanitized and validated by existing path guar
 - Topic validation rejects traversal and unsafe characters.
 - Design gate decision parsing accepts only approve/review/revise actions.
 - Issue decision planning includes all P0/P1/P2/P3 issues.
+- Discuss decisions populate `pendingDecisions` and block `REFINE`.
+- Design approval is blocked while unresolved discuss decisions exist.
+- Resume from pending discuss decisions returns to `ISSUE_DECISION_GATE` with a summary.
 - Refiner input includes only accepted issue IDs.
 - Workflow transitions support:
   - v0 -> approve -> complete;
