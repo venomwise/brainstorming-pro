@@ -12,7 +12,8 @@ Change `/clarify` from a topic-first automated clarification command into a requ
 - Present the same design-level gate after every design version:
   - approve for `spec-plan` handoff;
   - run cross-review;
-  - revise conversationally.
+  - revise conversationally;
+  - save and exit for later resume.
 - Preserve the old cross-review issue decision behavior: after triage, every triaged issue is shown to the user for explicit decision.
 - Ensure P0/P1/P2/P3 issues all enter the issue decision gate by default, with no threshold-based filtering.
 - Apply only user-accepted issues during refinement.
@@ -37,6 +38,7 @@ Change `/clarify` from a topic-first automated clarification command into a requ
 - Do not expose `--mode`, `--threshold`, `--max-rounds`, or `--reviewers` as `/clarify` parameters.
 - Do not silently auto-accept, auto-reject, or auto-defer review issues.
 - Do not create an unrestricted or automatic agent debate loop; every cross-review round is explicitly user-triggered.
+- Do not treat save-and-exit as approval, rejection, or abandonment; it only persists progress and leaves the run resumable.
 - Do not make `/clarify-status`, `/clarify-diff`, or `/clarify-clean` topicless as part of this change.
 
 ## Context
@@ -73,11 +75,12 @@ The existing artifact structure and management commands remain useful. The redes
 - All triaged issues, regardless of severity, will enter the issue decision gate.
 - Refinement will apply only issues explicitly accepted by the user.
 - Each design version will return to the same design review gate.
+- Design review gates include a save-and-exit action so uncertain users can pause without choosing revise/review/approve.
 - `spec-plan` handoff remains explicit and manual.
 
 ## Proposed Solution
 
-Refactor the `/clarify` workflow into a design gate loop. The command starts by capturing the user's request, proposing a topic, confirming the topic, and producing a v0 design. After v0 and after every later revision/refinement, the workflow pauses at a design review gate with three choices: approve for `spec-plan`, run cross-review, or revise conversationally.
+Refactor the `/clarify` workflow into a design gate loop. The command starts by capturing the user's request, proposing a topic, confirming the topic, and producing a v0 design. After v0 and after every later revision/refinement, the workflow pauses at a design review gate with four choices: approve for `spec-plan`, run cross-review, revise conversationally, or save and exit for later resume.
 
 When the user chooses cross-review, the orchestrator runs reviewers, triage, an issue decision gate for all findings, refinement of accepted issues only, and then returns to the design review gate. This preserves durable, multi-agent review while ensuring the user remains the authority on scope and trade-offs.
 
@@ -124,6 +127,9 @@ REQUEST_CAPTURE
       ├─ revise-conversationally
       │     -> CONVERSATIONAL_REVISION
       │     -> DESIGN_REVIEW_GATE
+      │
+      ├─ save-and-exit
+      │     -> INTERRUPTED
       │
       └─ run-cross-review
             -> CROSS_REVIEW
@@ -273,7 +279,8 @@ Actions:
 type DesignGateAction =
   | "approve-for-spec-plan"
   | "run-cross-review"
-  | "revise-conversationally";
+  | "revise-conversationally"
+  | "save-and-exit";
 ```
 
 The gate should show:
@@ -282,7 +289,8 @@ The gate should show:
 - `design.md` path;
 - latest change summary;
 - unresolved open questions, if any;
-- the three allowed actions.
+- whether pending issue discussions block approval;
+- the four allowed actions.
 
 Example prompt:
 
@@ -294,6 +302,7 @@ Choose next action:
 1. approve - approve this design for spec-plan handoff
 2. review  - run cross-review with subagents
 3. revise  - continue conversational clarification/revision
+4. save    - save current progress and exit; resume later with /clarify --resume
 ```
 
 Gate decisions are persisted:
@@ -301,11 +310,20 @@ Gate decisions are persisted:
 ```ts
 type DesignGateDecision = {
   version: string;
-  action: "approve-for-spec-plan" | "run-cross-review" | "revise-conversationally";
+  action: "approve-for-spec-plan" | "run-cross-review" | "revise-conversationally" | "save-and-exit";
   reason?: string;
   decidedAt: string;
 };
 ```
+
+`save-and-exit` behavior:
+
+- Persist the current state, latest design version, and a gate decision artifact.
+- Set the run to a resumable interrupted/waiting state that points back to `DESIGN_REVIEW_GATE`.
+- Do not create a new design version.
+- Do not treat the design as approved.
+- Do not run cross-review, issue decision, refine, or final approval.
+- On `/clarify --resume`, return directly to the same design gate with the same design version and a note that the previous action was save-and-exit.
 
 Artifacts:
 
@@ -458,10 +476,11 @@ Run spec-plan with:
 #### Resume Flow
 
 1. User runs `/clarify --resume`.
-2. Orchestrator finds pending/current clarification runs.
+2. Orchestrator finds pending/current clarification runs, including runs paused by `save-and-exit`.
 3. If one run exists, resume it.
 4. If multiple runs exist, prompt user to select one.
 5. Resume at the pending gate or next recoverable phase.
+6. If the run was paused from `DESIGN_REVIEW_GATE`, show the same design version and the normal design gate actions again.
 
 ## Error Handling
 
@@ -532,7 +551,7 @@ Generated or edited topics must be sanitized and validated by existing path guar
 - Chinese requests include translation/gloss metadata for English topic candidates.
 - Topic proposal detects exact conflicts and semantic near-duplicates with existing topic slugs.
 - Topic validation rejects traversal and unsafe characters.
-- Design gate decision parsing accepts only approve/review/revise actions.
+- Design gate decision parsing accepts only approve/review/revise/save actions.
 - Issue decision planning includes all P0/P1/P2/P3 issues.
 - Discuss decisions populate `pendingDecisions` and block `REFINE`.
 - Design approval is blocked while unresolved discuss decisions exist.
@@ -541,6 +560,7 @@ Generated or edited topics must be sanitized and validated by existing path guar
 - Workflow transitions support:
   - v0 -> approve -> complete;
   - v0 -> revise -> gate;
+  - v0 -> save-and-exit -> resume -> same gate;
   - v0 -> review -> triage -> issue decision -> refine -> gate;
   - repeated cross-review rounds.
 
