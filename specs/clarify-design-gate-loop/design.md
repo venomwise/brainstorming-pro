@@ -320,15 +320,26 @@ This avoids both automatic scope expansion and accidental omission of lower-seve
 
 #### Conversational Revision
 
-When the user chooses `revise-conversationally`, no cross-review subagents run. The main agent continues with brainstorming-style clarification or direct edits to the design based on user feedback.
+When the user chooses `revise-conversationally`, no cross-review subagents run by default. The main agent continues with brainstorming-style clarification or direct edits to the design based on user feedback. The main agent is responsible for classifying the revision type, explaining the classification when it affects flow, and asking the user for confirmation before applying changes that alter scope or approach.
+
+Revision classification:
+
+- **Minor wording/detail revision**: copy edits, terminology changes, clarification of already-agreed text, formatting, examples that do not alter behavior, or adding detail that is already implied by the approved scope. These can update the design directly.
+- **Clarification revision**: feedback that reveals missing context, ambiguous success criteria, unclear non-goals, or an unresolved user preference. These should return to focused brainstorming questions before updating the design.
+- **Scope or approach revision**: feedback that adds/removes a capability, changes the workflow state machine, changes user decision authority, changes artifact compatibility, changes public command semantics, or alters a major component boundary. These should return to convergence before updating the design.
+- **Review-worthy major revision**: a scope or approach revision with high uncertainty, cross-component impact, safety/security implications, migration/backward-compatibility impact, or disagreement between alternatives. The agent should explicitly recommend running cross-review after drafting the revised design, but the user still decides at the next `DESIGN_REVIEW_GATE`; the workflow should not automatically launch subagents.
 
 Rules:
 
 - Minor wording/detail feedback can update the design directly.
+- Clarification revisions should ask one focused question at a time until the missing context is resolved or recorded as an assumption.
 - Scope or approach changes should return to convergence before updating the design.
+- If the agent classifies a revision as review-worthy, it should record the reason in the revision artifact and recommend `run-cross-review` at the next design gate.
 - Missing context should return to clarification questions.
-- A new design version is written after revision.
-- The workflow returns to `DESIGN_REVIEW_GATE`.
+- Every completed conversational revision increments the integer design version: `v0 -> v1 -> v2`. Cross-review refinements use the same sequence. Do not use patch-style versions such as `v0.1` because each gate reviews a complete latest design.
+- If a user gives several small edits in one conversational revision turn, they are batched into one new version.
+- If discussion does not produce a design change, no new design version is written; the workflow remains at or returns to `DESIGN_REVIEW_GATE` with the same version.
+- The workflow returns to `DESIGN_REVIEW_GATE` after any completed design update.
 
 Artifacts:
 
@@ -336,6 +347,14 @@ Artifacts:
 revision-v0-to-v1.md/json
 design-v1.md
 ```
+
+The revision artifact should include:
+
+- revision classification;
+- user feedback summary;
+- whether cross-review is recommended and why;
+- changed design sections;
+- previous and new design version IDs.
 
 #### Final Approval / Spec-Plan Handoff
 
