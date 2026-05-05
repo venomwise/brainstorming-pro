@@ -419,6 +419,38 @@ CROSS_REVIEW -> TRIAGE -> ISSUE_DECISION_GATE -> REFINE -> DESIGN_REVIEW_GATE
 
 All default reviewers are enabled. Since `--reviewers` is removed, reviewer customization is not part of the command-level UX. Future customization can be handled through configuration if needed.
 
+Progress feedback is required because cross-review can be long-running:
+
+- Set `resumeStatus: "in-cross-review"` as soon as the round starts.
+- Show an initial progress summary with reviewer names, queued/running/completed/failed status, and the active round number.
+- Emit progress updates when each reviewer starts, completes, fails, or retries.
+- Emit heartbeat updates for long-running reviewers at a bounded interval, recommended every 30 seconds, showing elapsed time and current known status.
+- After reviewer quorum is reached, notify the user that triage is starting.
+- Show progress for triage and refine phases separately, including start, completion, retry, and failure.
+- In `--verbose` mode, include attempt numbers, model names when available, elapsed time per agent, and artifact paths as they are written.
+- In normal mode, keep messages concise: `Review round 1: 2/4 reviewers complete, 1 running, 1 queued`.
+- Persist progress snapshots to `metadata.json` and append detailed events to the execution log so `/clarify --resume` and `/clarify-status` can report the latest known state after interruption.
+
+Progress metadata should include:
+
+```ts
+type CrossReviewProgress = {
+  round: number;
+  phase: "review" | "triage" | "refine";
+  startedAt: string;
+  lastHeartbeatAt: string;
+  reviewers: Array<{
+    name: string;
+    status: "queued" | "running" | "succeeded" | "failed" | "retrying";
+    attempt: number;
+    startedAt?: string;
+    endedAt?: string;
+    elapsedMs?: number;
+    lastMessage?: string;
+  }>;
+};
+```
+
 Artifacts per round:
 
 ```text
@@ -597,7 +629,7 @@ Status behavior:
 - `awaiting-topic-confirmation`: resume shows the saved request, topic candidates, similar-topic warnings, and asks the user to choose/edit a topic.
 - `awaiting-design-gate-decision`: resume shows the latest design version and the four design gate actions.
 - `awaiting-issue-decisions`: resume shows the active review round, all unresolved issue decisions, and especially any blocking `discuss` issues.
-- `in-cross-review`: resume reports that subagent work was interrupted or still in progress. If subprocesses are no longer running, the user can retry the round or discard partial round artifacts and return to the design gate.
+- `in-cross-review`: resume reports that subagent work was interrupted or still in progress, using the latest persisted progress snapshot with reviewer statuses, elapsed time, active phase, retry counts, and completed artifact paths. If subprocesses are no longer running, the user can retry the round or discard partial round artifacts and return to the design gate.
 - `completed`: not resumable by default; show final design and final approval paths.
 - `failed`: show the failure summary, last safe phase, and recovery choices if available.
 
@@ -716,6 +748,8 @@ Generated or edited topics must be sanitized and validated by existing path guar
 - Resume status mapping routes `awaiting-topic-confirmation`, `awaiting-design-gate-decision`, `awaiting-issue-decisions`, `in-cross-review`, `completed`, and `failed` correctly.
 - Reviewer quorum requires at least 3 of 4 default reviewers before triage.
 - Reviewer, triager, and refiner transient failures are retried at most once automatically.
+- Cross-review progress emits start/completion/failure/retry events and bounded heartbeat updates for long-running reviewers.
+- `metadata.json` stores the latest cross-review progress snapshot for resume/status.
 - Failure artifacts include agent name, role, attempt, model, failure type/message, timestamps, recoverability, and redaction status.
 - Refiner input includes only accepted issue IDs.
 - Workflow transitions support:
