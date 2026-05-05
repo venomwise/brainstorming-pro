@@ -91,7 +91,7 @@ specs/<topic>/
   design.md                          # always mirrors latest complete design version
   clarification/
     <run-id>/
-      metadata.json                  # run metadata, current phase, latest version, active round
+      metadata.json                  # run metadata, resume status, current phase, latest version, active round
       request.md
       topic-proposal.json
       versions/
@@ -119,7 +119,7 @@ specs/<topic>/
       final-approval.md
 ```
 
-`metadata.json` is the canonical run index for resume/status within a run. `specs/<topic>/design.md` remains the stable public design path for handoff to `spec-plan`.
+`metadata.json` is the canonical run index for resume/status within a run. It records both the detailed workflow phase and a user-facing resume status such as `awaiting-topic-confirmation`, `awaiting-design-gate-decision`, `awaiting-issue-decisions`, `in-cross-review`, `completed`, or `failed`. `specs/<topic>/design.md` remains the stable public design path for handoff to `spec-plan`.
 
 ### Architecture
 
@@ -204,7 +204,7 @@ Public command forms:
 
 Public options retained:
 
-- `--resume`: resume the latest pending/current clarification run; if multiple resumable runs exist, prompt the user to choose.
+- `--resume`: resume the latest resumable clarification run based on metadata resume status; if multiple resumable runs exist, prompt the user to choose.
 - `--verbose`: emit detailed phase/activity logging.
 - `--dry-run`: validate input and produce a planned workflow/debug artifact without launching the full workflow or subagents.
 
@@ -303,7 +303,7 @@ specs/<topic>/
   design.md                          # always mirrors the latest complete design version
   clarification/
     <run-id>/
-      metadata.json                  # run metadata, current phase, latest version, active round
+      metadata.json                  # run metadata, resume status, current phase, latest version, active round
       request.md
       topic-proposal.json
       versions/
@@ -533,12 +533,52 @@ Run spec-plan with:
 
 #### Resume Flow
 
+Resume is driven by fine-grained status in each run's `metadata.json`, not only by a broad pending/current flag.
+
+```ts
+type ResumeStatus =
+  | "awaiting-topic-confirmation"
+  | "awaiting-design-gate-decision"
+  | "awaiting-issue-decisions"
+  | "in-cross-review"
+  | "completed"
+  | "failed";
+```
+
+Recommended metadata shape:
+
+```ts
+type RunMetadata = {
+  runId: string;
+  topic?: string;
+  requestSummary: string;
+  resumeStatus: ResumeStatus;
+  currentPhase: WorkflowPhase;
+  latestVersion?: string;
+  activeRound?: number;
+  pendingDecisionIds: string[];
+  lastUpdatedAt: string;
+  resumeHint: string;
+};
+```
+
+Status behavior:
+
+- `awaiting-topic-confirmation`: resume shows the saved request, topic candidates, similar-topic warnings, and asks the user to choose/edit a topic.
+- `awaiting-design-gate-decision`: resume shows the latest design version and the four design gate actions.
+- `awaiting-issue-decisions`: resume shows the active review round, all unresolved issue decisions, and especially any blocking `discuss` issues.
+- `in-cross-review`: resume reports that subagent work was interrupted or still in progress. If subprocesses are no longer running, the user can retry the round or discard partial round artifacts and return to the design gate.
+- `completed`: not resumable by default; show final design and final approval paths.
+- `failed`: show the failure summary, last safe phase, and recovery choices if available.
+
+Flow:
+
 1. User runs `/clarify --resume`.
-2. Orchestrator finds pending/current clarification runs, including runs paused by `save-and-exit`.
+2. Orchestrator scans run metadata and finds runs with resumable statuses: `awaiting-topic-confirmation`, `awaiting-design-gate-decision`, `awaiting-issue-decisions`, `in-cross-review`, or recoverable `failed`.
 3. If one run exists, resume it.
-4. If multiple runs exist, prompt user to select one.
-5. Resume at the pending gate or next recoverable phase.
-6. If the run was paused from `DESIGN_REVIEW_GATE`, show the same design version and the normal design gate actions again.
+4. If multiple runs exist, prompt user to select one, showing topic/request summary, resume status, latest version, active round, and last update time.
+5. Route to the status-specific gate or recovery action.
+6. If the run was paused by `save-and-exit`, its status is `awaiting-design-gate-decision`; show the same design version and normal design gate actions again.
 
 ## Error Handling
 
@@ -614,6 +654,7 @@ Generated or edited topics must be sanitized and validated by existing path guar
 - Discuss decisions populate `pendingDecisions` and block `REFINE`.
 - Design approval is blocked while unresolved discuss decisions exist.
 - Resume from pending discuss decisions returns to `ISSUE_DECISION_GATE` with a summary.
+- Resume status mapping routes `awaiting-topic-confirmation`, `awaiting-design-gate-decision`, `awaiting-issue-decisions`, `in-cross-review`, `completed`, and `failed` correctly.
 - Refiner input includes only accepted issue IDs.
 - Workflow transitions support:
   - v0 -> approve -> complete;
