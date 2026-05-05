@@ -187,25 +187,60 @@ type ClarifyOptions = {
 
 #### Topic Proposal / Confirmation
 
-The topic generator derives a concise topic from the natural-language request.
+The topic generator derives multiple concise topic candidates from the natural-language request, checks them against existing specs, and asks the user to choose or edit one.
 
 Rules:
 
-- Use kebab-case.
+- Generate 2-3 candidate topics, not a single slug.
+- Use kebab-case for all candidate slugs.
 - Prefer a feature, command, or behavior name from the request.
-- Keep the slug concise, ideally 3-6 meaningful words.
+- Keep each slug concise, ideally 3-6 meaningful words.
 - Avoid generic slugs like `feature`, `update`, or `change`.
 - Sanitize path-sensitive characters and reject traversal attempts.
-- If the proposed topic conflicts with an existing spec directory, ask whether to reuse/edit the topic rather than silently overwrite.
+- Check exact conflicts with existing `specs/<topic>` directories.
+- Check semantic similarity with existing topic slugs to avoid near-duplicates such as `user-auth` and `user-authentication`.
+- If a candidate is similar to an existing topic, show the existing topic as a reuse option and explain the similarity.
+- If the request is Chinese or another non-English language but the generated slug is English, show a translation/gloss for each candidate so the user can verify meaning.
+- If all candidates are weak, generic, unsafe, or semantically duplicate existing specs, ask the user to provide or edit a topic manually.
+
+Candidate metadata should include:
+
+```ts
+type TopicCandidate = {
+  slug: string;
+  displayName: string;
+  sourcePhrase?: string;
+  translation?: {
+    fromLanguage: string;
+    originalPhrase: string;
+    englishGloss: string;
+  };
+  similarExistingTopics: Array<{
+    slug: string;
+    reason: string;
+    confidence: "high" | "medium" | "low";
+  }>;
+};
+```
 
 Example:
 
 ```text
 Request: 现在的 /clarify 命令后面不应该是 topic，而应该是用户需求...
-Proposed topic: clarify-design-gate-loop
+
+Choose a topic:
+1. clarify-design-gate-loop
+   Translation: “/clarify 设计评审门控循环” -> clarify design gate loop
+2. clarify-request-workflow
+   Translation: “/clarify 用户需求流程” -> clarify request workflow
+3. request-first-clarify
+   Translation: “需求优先的 clarify” -> request-first clarify
+
+Similar existing topics:
+- brainstorming-pro: related package-level spec, but broader than this change
 ```
 
-The system asks the user to confirm or edit the topic before calling path resolution and run creation.
+The system asks the user to choose a candidate, reuse a similar existing topic, or edit/provide a topic before calling path resolution and run creation.
 
 #### V0 Brainstorming
 
@@ -391,13 +426,14 @@ Run spec-plan with:
 
 1. User runs `/clarify <request>`.
 2. Parser stores the full non-option text as `request`.
-3. Topic proposal derives a kebab-case slug from the request.
-4. User confirms or edits the topic.
-5. Orchestrator creates `specs/<topic>/` and a new clarification run.
-6. Request and topic proposal artifacts are written.
-7. V0 brainstorming clarifies the request and writes v0 design.
-8. `design-v0.md` and latest `design.md` are written.
-9. User enters `DESIGN_REVIEW_GATE`.
+3. Topic proposal derives 2-3 kebab-case candidate slugs from the request, with translation/gloss metadata when applicable.
+4. The system checks exact and semantic similarity against existing topics.
+5. User chooses a candidate, reuses a similar existing topic, or edits/provides the topic.
+6. Orchestrator creates `specs/<topic>/` and a new clarification run.
+7. Request and topic proposal artifacts are written.
+8. V0 brainstorming clarifies the request and writes v0 design.
+9. `design-v0.md` and latest `design.md` are written.
+10. User enters `DESIGN_REVIEW_GATE`.
 
 #### Cross-Review Flow
 
@@ -448,7 +484,7 @@ Usage: /clarify <request> [--verbose] [--dry-run]
 
 ### Topic Proposal Failure
 
-If no meaningful slug can be generated, ask the user to provide one. The confirmed topic must still pass path safety checks before artifact creation.
+If no meaningful candidate slug can be generated, ask the user to provide one. If generated candidates are semantically too close to existing topics, show the similar existing topics and ask whether to reuse one or provide a more specific topic. The confirmed topic must still pass path safety checks before artifact creation.
 
 ### Topic Conflict
 
@@ -492,7 +528,9 @@ Generated or edited topics must be sanitized and validated by existing path guar
 - `parseClarifyArgs` accepts only `--resume`, `--verbose`, and `--dry-run`.
 - Unknown options such as `--mode`, `--threshold`, `--max-rounds`, and `--reviewers` are rejected.
 - Missing request without `--resume` returns the new usage error.
-- Topic proposal generates concise kebab-case slugs for English and Chinese requests.
+- Topic proposal generates 2-3 concise kebab-case candidates for English and Chinese requests.
+- Chinese requests include translation/gloss metadata for English topic candidates.
+- Topic proposal detects exact conflicts and semantic near-duplicates with existing topic slugs.
 - Topic validation rejects traversal and unsafe characters.
 - Design gate decision parsing accepts only approve/review/revise actions.
 - Issue decision planning includes all P0/P1/P2/P3 issues.
