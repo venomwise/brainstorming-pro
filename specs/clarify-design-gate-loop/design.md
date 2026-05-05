@@ -639,9 +639,36 @@ If `specs/<topic>` already exists, ask whether to reuse the topic for a new run 
 
 ### Subagent Failure
 
-- Reviewer failure is recorded. The workflow can continue with successful reviewers if enough signal remains, or ask the user whether to retry.
+Subagent failures must be visible, bounded, and recoverable. Every failed subagent run should record enough information for the user to decide whether to retry, continue with partial results, or return to the design gate.
+
+Retry limits:
+
+- Each reviewer may be retried automatically at most 1 time for transient failures such as timeout, rate limit, model unavailable, or invalid structured output after repair fails.
+- Triager and refiner may each be retried automatically at most 1 time for transient failures.
+- After the automatic retry limit is exhausted, the workflow pauses with `resumeStatus: "failed"` or `"in-cross-review"` and asks the user whether to retry manually, continue when allowed, or abandon the current round.
+- Manual retries should create a new attempt record and must not overwrite earlier failure records.
+
+Reviewer quorum / enough-signal rule:
+
+- The default reviewer set is product, architecture, risk, and testing.
+- Cross-review may continue to triage only if at least 3 of 4 default reviewers succeed.
+- If fewer than 3 reviewers succeed, the round is considered insufficient signal and should pause before triage.
+- If exactly 3 reviewers succeed, the workflow may continue, but the missing reviewer and its failure reason must be shown to the user and recorded in the review round summary.
+- If a custom configured reviewer set is used in the future, quorum should be `max(2, ceil(0.75 * reviewerCount))` successful reviewers.
+- A failed risk or architecture reviewer should be highlighted as higher impact because those perspectives often catch safety, scope, and design-structure problems. The user may still choose to retry or continue if quorum is met.
+
+Failure recording:
+
+- Record failures in `reviews/round-<N>/review.json` or the relevant triage/refine artifact, plus execution logs and `metadata.json` summary fields.
+- Include reviewer/agent name, role, attempt number, requested model, actual model if known, start/end timestamps, failure type, message, recoverability, stderr/stdout excerpts if safe, and whether redaction was applied.
+- The user-facing summary should include concise failure reasons, not only "agent failed".
+- Partial successful reviewer outputs remain available as untrusted inputs for triage only when quorum is met.
+
+Triager/refiner behavior:
+
 - Triager failure blocks issue decision and should keep the current design unchanged.
 - Refiner failure must not overwrite `design.md`; the previous latest design remains authoritative.
+- If refiner fails after issue decisions were collected, keep `decisions.json` and allow retrying refine without asking the user to re-enter decisions unless the triage artifact changes.
 - All failures should be recorded in state and execution logs for resume/status.
 
 ### Invalid Refiner Output
@@ -687,6 +714,9 @@ Generated or edited topics must be sanitized and validated by existing path guar
 - Design approval is blocked while unresolved discuss decisions exist.
 - Resume from pending discuss decisions returns to `ISSUE_DECISION_GATE` with a summary.
 - Resume status mapping routes `awaiting-topic-confirmation`, `awaiting-design-gate-decision`, `awaiting-issue-decisions`, `in-cross-review`, `completed`, and `failed` correctly.
+- Reviewer quorum requires at least 3 of 4 default reviewers before triage.
+- Reviewer, triager, and refiner transient failures are retried at most once automatically.
+- Failure artifacts include agent name, role, attempt, model, failure type/message, timestamps, recoverability, and redaction status.
 - Refiner input includes only accepted issue IDs.
 - Workflow transitions support:
   - v0 -> approve -> complete;
