@@ -84,6 +84,43 @@ Refactor the `/clarify` workflow into a design gate loop. The command starts by 
 
 When the user chooses cross-review, the orchestrator runs reviewers, triage, an issue decision gate for all findings, refinement of accepted issues only, and then returns to the design review gate. This preserves durable, multi-agent review while ensuring the user remains the authority on scope and trade-offs.
 
+The artifact layout separates stable handoff files, run metadata, immutable design versions, and review rounds:
+
+```text
+specs/<topic>/
+  design.md                          # always mirrors latest complete design version
+  clarification/
+    <run-id>/
+      metadata.json                  # run metadata, current phase, latest version, active round
+      request.md
+      topic-proposal.json
+      versions/
+        v0/
+          design.md
+          discovery.md
+          design-gate.json
+        v1/
+          design.md
+          revision.md                # present for conversational revisions
+          revision.json
+          design-gate.json
+      reviews/
+        round-1/
+          review.json
+          review.md
+          triage.json
+          triage.md
+          decisions.json
+          decisions.md
+          refine.json
+          refine.md
+        round-2/
+          ...
+      final-approval.md
+```
+
+`metadata.json` is the canonical run index for resume/status within a run. `specs/<topic>/design.md` remains the stable public design path for handoff to `spec-plan`.
+
 ### Architecture
 
 ```text
@@ -259,15 +296,24 @@ The `V0_BRAINSTORMING` phase uses the methodology of the `brainstorming` skill w
 - converge on problem statement, non-goals, constraints, and success criteria;
 - produce a design document using the standard design headings.
 
-Artifacts:
+Artifacts use a clear separation between the latest public design, run-level metadata, versioned design snapshots, and review rounds:
 
 ```text
-specs/<topic>/design.md                         # latest design
-specs/<topic>/clarification/run-*/request.md
-specs/<topic>/clarification/run-*/topic-proposal.json
-specs/<topic>/clarification/run-*/design-v0.md
-specs/<topic>/clarification/run-*/discovery-v0.md
+specs/<topic>/
+  design.md                          # always mirrors the latest complete design version
+  clarification/
+    <run-id>/
+      metadata.json                  # run metadata, current phase, latest version, active round
+      request.md
+      topic-proposal.json
+      versions/
+        v0/
+          design.md
+          discovery.md
+          design-gate.json
 ```
+
+`specs/<topic>/design.md` is the stable handoff path. Version directories are immutable snapshots except for filling gate metadata for that version.
 
 #### Design Review Gate
 
@@ -328,10 +374,10 @@ type DesignGateDecision = {
 Artifacts:
 
 ```text
-design-gate-v0.json/md
-design-gate-v1.json/md
-...
+specs/<topic>/clarification/<run-id>/versions/v<N>/design-gate.json
 ```
+
+The gate artifact belongs to the version being reviewed. If the user chooses `save-and-exit`, the same version directory records that decision and resume returns to that version's gate.
 
 #### Cross-Review Round
 
@@ -346,12 +392,19 @@ All default reviewers are enabled. Since `--reviewers` is removed, reviewer cust
 Artifacts per round:
 
 ```text
-review-r1.md/json
-triage-r1.md/json
-decisions-r1.md/json
-refine-r1.md/json
-design-v1.md
+specs/<topic>/clarification/<run-id>/reviews/
+  round-1/
+    review.json
+    review.md
+    triage.json
+    triage.md
+    decisions.json
+    decisions.md
+    refine.json
+    refine.md
 ```
+
+The refined design produced by a review round is stored as the next version under `versions/v<N>/design.md`, while `specs/<topic>/design.md` is updated to mirror it. Review artifacts stay under `reviews/round-<N>/` so review rounds and design versions do not get mixed.
 
 #### Issue Decision Gate
 
@@ -402,9 +455,14 @@ Rules:
 Artifacts:
 
 ```text
-revision-v0-to-v1.md/json
-design-v1.md
+specs/<topic>/clarification/<run-id>/versions/v<N>/
+  design.md
+  revision.md
+  revision.json
+  design-gate.json
 ```
+
+A conversational revision writes the next integer design version under `versions/v<N>/`. The top-level `specs/<topic>/design.md` is updated to mirror that version.
 
 The revision artifact should include:
 
@@ -450,7 +508,7 @@ Run spec-plan with:
 6. Orchestrator creates `specs/<topic>/` and a new clarification run.
 7. Request and topic proposal artifacts are written.
 8. V0 brainstorming clarifies the request and writes v0 design.
-9. `design-v0.md` and latest `design.md` are written.
+9. `versions/v0/design.md` and latest `design.md` are written.
 10. User enters `DESIGN_REVIEW_GATE`.
 
 #### Cross-Review Flow
