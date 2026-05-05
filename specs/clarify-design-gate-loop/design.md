@@ -287,7 +287,37 @@ The system asks the user to choose a candidate, reuse a similar existing topic, 
 
 #### V0 Brainstorming
 
-The `V0_BRAINSTORMING` phase uses the methodology of the `brainstorming` skill without invoking it as a separate command. It should:
+The `V0_BRAINSTORMING` phase should share methodology with the existing `brainstorming` skill, but it must not copy/paste the skill text into unrelated extension code or attempt to invoke the skill as a nested command. The implementation should extract the reusable methodology into a package-owned prompt/methodology resource that both `/clarify` and the bundled skill can reference.
+
+Recommended structure:
+
+```text
+brainstorming-pro/
+  prompts/
+    brainstorming-methodology.md      # shared methodology: context exploration, fuzziness, questions, convergence, design headings
+    clarify-v0.md                     # clarify-specific wrapper around the shared methodology
+  skills/
+    brainstorming-pro/SKILL.md        # references the shared methodology conceptually
+  extensions/clarification-orchestrator/
+    phases/v0-brainstorming.ts        # orchestrates state/artifacts/UI, does not embed long methodology text
+```
+
+Implementation rules:
+
+- Do not duplicate the full brainstorming methodology in TypeScript. TypeScript owns orchestration, state, artifact writes, and user gates.
+- Put reusable methodology in markdown prompt resources so behavior can be reviewed and updated without code changes.
+- `clarify-v0.md` should include the shared methodology plus clarify-specific constraints: generate `versions/v0/design.md`, stop at `DESIGN_REVIEW_GATE`, do not launch cross-review, do not invoke `spec-plan`.
+- If the existing standalone `brainstorming` skill remains outside this package, record the dependency explicitly: Brainstorming Pro mirrors the public methodology and should be updated when that skill changes materially.
+- If this package later owns both workflows, move the shared methodology into one canonical resource and have both commands/skills load it.
+
+Consistency strategy:
+
+- Add a methodology version string in the shared prompt resource, for example `methodologyVersion: brainstorming-v1`.
+- Store the methodology version used for v0 in `metadata.json` and `versions/v0/discovery.md`.
+- Add tests that assert `clarify-v0.md` includes or references the shared methodology resource instead of embedding a divergent copy.
+- Add a documentation checklist item: when the brainstorming skill methodology changes, update the shared methodology resource or consciously record a divergence.
+
+The phase should:
 
 - inspect enough project context to understand purpose, stack, and structure;
 - diagnose fuzziness level;
@@ -643,6 +673,8 @@ Generated or edited topics must be sanitized and validated by existing path guar
 
 - `parseClarifyArgs` parses natural-language request text.
 - `parseClarifyArgs` accepts only `--resume`, `--verbose`, and `--dry-run`.
+- V0 brainstorming prompt loads or references the shared methodology resource instead of duplicating the full methodology in TypeScript.
+- V0 artifacts record the methodology version used.
 - Unknown options such as `--mode`, `--threshold`, `--max-rounds`, and `--reviewers` are rejected.
 - Missing request without `--resume` returns the new usage error.
 - Topic proposal generates 2-3 concise kebab-case candidates for English and Chinese requests.
