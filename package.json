@@ -1,0 +1,40 @@
+{
+  "name": "brainstorming-pro",
+  "version": "0.1.0",
+  "description": "Pi package for structured multi-agent requirement clarification workflows.",
+  "type": "module",
+  "keywords": [
+    "pi-package",
+    "pi-extension",
+    "requirements",
+    "brainstorming"
+  ],
+  "peerDependencies": {
+    "@mariozechner/pi-coding-agent": "*",
+    "typebox": "*"
+  },
+  "devDependencies": {
+    "@mariozechner/pi-coding-agent": "^0.72.1",
+    "typebox": "^1.1.37",
+    "typescript": "^5.0.0"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "node --test",
+    "test:unit": "node --test tests/unit/*.test.ts",
+    "test:integration": "node --test tests/integration/*.test.ts",
+    "test:security": "node --test tests/security/*.test.ts",
+    "validate-package": "node scripts/validate-package.ts"
+  },
+  "pi": {
+    "extensions": [
+      "./extensions/clarification-orchestrator"
+    ],
+    "skills": [
+      "./skills"
+    ],
+    "prompts": [
+      "./prompts"
+    ]
+  }
+}

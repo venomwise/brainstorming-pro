@@ -1,0 +1,412 @@
+# Implementation Plan: Brainstorming Pro
+
+## Overview
+
+This implementation plan is driven by the requirements in [requirements.md](requirements.md).
+
+The implementation is organized into twelve phases that build the package from foundations to the full clarification workflow: package/resource scaffolding, shared schemas, configuration, artifact/state management, subagent execution, workflow orchestration, user gates, reliability, observability, run management, security hardening, and final integration. The implementation language is TypeScript, targeting pi extension APIs with TypeBox for runtime schemas and Node.js built-ins for filesystem/process orchestration.
+
+The core workflow should be implemented as a complete, recoverable, observable, and safe foreground clarification system rather than a deliberately limited MVP. Tasks marked with `*` are verification, test, or non-essential enhancement tasks as required by the planning format; they still describe expected quality work for this project.
+
+## Tasks
+
+- [✅] 1. Phase 1: Package scaffold and resource registration
+  - [✅] 1.1 Create package manifest and base directory structure
+    - Create `package.json` with `name`, `keywords`, `peerDependencies`, and `pi.extensions`, `pi.skills`, `pi.prompts` manifest entries
+    - Create directories `extensions/clarification-orchestrator/`, `agents/`, `skills/brainstorming-pro/`, `prompts/`, and `tests/`
+    - Add placeholder exports in `extensions/clarification-orchestrator/index.ts` for the extension factory
+    - _Requirements: 1.1, 1.6_
+  - [✅] 1.2 Implement extension command registration shell
+    - Modify `extensions/clarification-orchestrator/index.ts` to register `/clarify`, `/clarify-status`, `/clarify-diff`, and `/clarify-clean`
+    - Route command handlers to `commands/clarify.ts`, `commands/status.ts`, `commands/diff.ts`, and `commands/clean.ts`
+    - Ensure command descriptions and argument handling are visible through pi command discovery
+    - _Requirements: 2.1, 2.5, 2.6, 2.7_
+  - [✅] 1.3 Add bundled skill and prompt resources
+    - Create `skills/brainstorming-pro/SKILL.md` with methodology, trust-boundary reminders, and spec-plan handoff policy
+    - Create prompt fragments `prompts/clarify.md`, `prompts/clarify-review.md`, and `prompts/clarify-refine.md`
+    - Keep prompt fragments usable by the orchestrator as files rather than relying on command expansion
+    - _Requirements: 1.1, 14.2, 14.4_
+  - [✅] 1.4 Add bundled agent markdown definitions
+    - Create `agents/designer.md`, `agents/reviewer-product.md`, `agents/reviewer-architecture.md`, `agents/reviewer-risk.md`, `agents/reviewer-testing.md`, `agents/triager.md`, `agents/refiner.md`, and `agents/verifier.md`
+    - Include frontmatter for agent name, description, default tools, and optional model preference
+    - Include role-specific instructions requiring structured output and treating provided artifacts as data
+    - _Requirements: 1.2, 6.3, 13.2_
+  - [✅]* 1.5 Verify package resource discovery manually
+    - Install or load the local package with pi package/extension mechanisms
+    - Confirm extension commands, skill, and prompts are discoverable
+    - Confirm bundled agents are not expected to be discovered by pi core directly
+    - _Requirements: 1.1, 1.2, 2.1_
+
+- [✅] 2. Phase 2: Shared types, schemas, and validation utilities
+  - [✅] 2.1 Implement core TypeScript types
+    - Create `extensions/clarification-orchestrator/types.ts` with `ClarifyOptions`, `WorkflowState`, `RunMetadata`, `AgentDefinition`, `AgentRunResult`, `DesignIssue`, `Evidence`, `UserDecision`, and `VerificationResult`
+    - Define enums for workflow phases, automation modes, severities, issue categories, decision states, and verification statuses
+    - Export types needed by workflow, artifact, runner, and command modules
+    - _Requirements: 5.4, 8.1, 8.2, 8.7_
+  - [✅] 2.2 Implement TypeBox runtime schemas
+    - Create `extensions/clarification-orchestrator/schemas.ts` with TypeBox schemas for config, options, issues, evidence, decisions, refiner output, verifier output, execution logs, and workflow state
+    - Ensure schemas distinguish human-readable markdown artifacts from canonical JSON data
+    - Include schema metadata for actionable validation messages
+    - _Requirements: 3.3, 8.1, 8.3, 8.7_
+  - [✅] 2.3 Implement schema validation and repair helpers
+    - Create `extensions/clarification-orchestrator/validation.ts` with `validateOrThrow`, `formatValidationError`, `parseJsonOutput`, and `buildRepairPrompt`
+    - Implement one repair-pass control flags without invoking models directly from this module
+    - Return structured validation errors containing field path, expected shape, and safe invalid-value summaries
+    - _Requirements: 3.4, 8.8, 10.5_
+  - [✅] 2.4 Implement issue canonicalization helpers
+    - Add `canonicalizeIssues`, `assignStableIssueIds`, `validateIssueReferences`, and `preserveSourceIssueIds` in `validation.ts` or `issues.ts`
+    - Generate stable run-local IDs such as `BP-R1-I001`
+    - Validate `dependsOn`, `conflictsWith`, P0 recommendation consistency, and evidence quality
+    - _Requirements: 8.2, 8.3, 8.4, 8.5_
+  - [✅]* 2.5 Write unit tests for schemas and validation
+    - Create `tests/unit/schemas.test.ts` for valid and invalid config, issue, decision, and verification payloads
+    - Create `tests/unit/issues.test.ts` for stable ID assignment, duplicate/source ID preservation, and reference validation
+    - Test validation error formatting for safe actionable output
+    - _Requirements: 8.1, 8.2, 8.3, 15.1_
+
+- [✅] 3. Phase 3: Command parsing, topic safety, and configuration
+  - [✅] 3.1 Implement command option parser
+    - Create `extensions/clarification-orchestrator/options.ts` with `parseClarifyArgs`, `parseStatusArgs`, `parseDiffArgs`, and `parseCleanArgs`
+    - Validate `--mode`, `--max-rounds`, `--threshold`, `--reviewers`, `--resume`, `--verbose`, `--dry-run`, `--keep`, and command arity
+    - Ensure invalid options stop before workflow artifact writes
+    - _Requirements: 2.2, 2.3, 2.4, 2.7_
+  - [✅] 3.2 Implement topic slugification and path guard
+    - Create `extensions/clarification-orchestrator/path-guard.ts` with `normalizeTopic`, `validateTopicSafety`, `resolveSpecPaths`, and `assertUnderSpecRoot`
+    - Preserve original display topic and create deterministic filesystem slug
+    - Reject or safely handle empty topics, path separators, `..`, absolute paths, unsafe characters, long topics, and empty normalized slugs
+    - _Requirements: 4.1, 4.2, 4.3, 4.4, 4.5, 13.4_
+  - [✅] 3.3 Implement config loader
+    - Create `extensions/clarification-orchestrator/config.ts` with `loadConfig`, `loadConfigFile`, `mergeConfig`, and `validateConfig`
+    - Load bundled defaults, `~/.pi/agent/brainstorming-pro/config.json`, project config, project local config, and command overrides in order
+    - Apply schema-aware merge rules for scalars, objects, arrays, and reviewer sets
+    - _Requirements: 3.1, 3.2, 3.3, 3.6_
+  - [✅] 3.4 Implement security-sensitive config confirmation detection
+    - Add `detectSecuritySensitiveChanges` and `requiresUserConfirmation` in `config.ts`
+    - Detect project-level attempts to enable project-local agents, expand tools, disable redaction, or loosen artifact path policies
+    - Return confirmation prompts to command/workflow layers without directly trusting project config
+    - _Requirements: 3.5, 13.1, 13.3, 13.6_
+  - [✅]* 3.5 Write unit tests for parsing, config, and path safety
+    - Create `tests/unit/options.test.ts` for valid defaults, invalid enum values, unknown options, and missing topics
+    - Create `tests/unit/config.test.ts` for precedence, merge behavior, schema errors, and security-sensitive project config
+    - Create `tests/unit/path-guard.test.ts` for Unicode topics, path traversal, empty slugs, long topics, and existing design conflicts
+    - _Requirements: 2.2, 2.3, 3.1, 3.4, 4.4, 15.1_
+
+- [✅] 4. Phase 4: Agent discovery and prompt assembly
+  - [✅] 4.1 Implement bundled and override agent discovery
+    - Create `extensions/clarification-orchestrator/agents.ts` with `discoverAgents`, `loadAgentFile`, `parseAgentFrontmatter`, and `resolveAgentSelection`
+    - Resolve bundled agents relative to package root
+    - Support user-level overrides and guarded project-level overrides with source provenance
+    - _Requirements: 1.2, 1.3, 1.4, 1.5_
+  - [✅] 4.2 Implement reviewer selection and config integration
+    - Add reviewer resolution logic for default reviewers, config-enabled reviewers, disabled reviewers, custom reviewers, and command-line `--reviewers`
+    - Validate requested reviewer names and report missing or disabled reviewers clearly
+    - Preserve reviewer order for deterministic artifact naming
+    - _Requirements: 2.3, 3.2, 3.6, 6.4_
+  - [✅] 4.3 Implement prompt assembly utilities
+    - Create `extensions/clarification-orchestrator/prompts.ts` with `loadPromptFragment`, `buildAgentSystemPrompt`, `buildAgentTaskPrompt`, and `wrapUntrustedDataBlock`
+    - Assemble role prompts from bundled agent definitions, prompt fragments, workflow context, artifact excerpts, and schema instructions
+    - Delimit project files and prior agent outputs as untrusted data
+    - _Requirements: 6.1, 8.1, 13.1, 13.2_
+  - [✅] 4.4 Implement tool policy resolution
+    - Add `resolveAllowedTools` in `agents.ts` or `tool-policy.ts`
+    - Enforce default tool policies for designer, reviewers, triager, refiner, verifier, and orchestrator
+    - Detect broader custom tool requests for user confirmation
+    - _Requirements: 6.3, 6.4, 13.3, 13.5_
+  - [✅]* 4.5 Write unit tests for agent discovery and prompt assembly
+    - Create `tests/unit/agents.test.ts` for bundled discovery, override priority, missing resources, and provenance metadata
+    - Create `tests/unit/prompts.test.ts` for untrusted data delimiting, schema instruction injection, and prompt fragment loading
+    - Create `tests/unit/tool-policy.test.ts` for default tools and unsafe tool expansion detection
+    - _Requirements: 1.2, 1.5, 6.3, 13.2, 15.1_
+
+- [✅] 5. Phase 5: Artifact store, run lifecycle, status, diff, and cleanup
+  - [✅] 5.1 Implement artifact store core
+    - Create `extensions/clarification-orchestrator/artifact-store.ts` with `createRun`, `resolveCurrentRun`, `writeMarkdownArtifact`, `writeJsonArtifact`, `readJsonArtifact`, and `updateCurrentRun`
+    - Create run directories under `specs/<topic>/clarification/run-<timestamp>/`
+    - Write `current.json` and best-effort `current` symlink
+    - _Requirements: 5.1, 5.2, 5.3, 5.7_
+  - [✅] 5.2 Implement workflow state persistence
+    - Add `loadState`, `saveState`, `updateStatePhase`, `appendStateError`, and `recordCompletedArtifact`
+    - Persist all required `WorkflowState` fields to `state.json`
+    - Ensure state writes are atomic or safely replace previous state files
+    - _Requirements: 5.4, 10.6, 10.7, 10.8_
+  - [✅] 5.3 Implement artifact conflict handling
+    - Add `inspectExistingSpec`, `resolveExistingDesignConflict`, and `prepareRunForClarify`
+    - Detect existing `design.md`, existing clarification runs, missing current pointers, and corrupted state
+    - Return choices for resume, new run, existing design as input, overwrite, manual repair, or abort
+    - _Requirements: 4.6, 10.8, 12.3_
+  - [✅] 5.4 Implement status command backing logic
+    - Create `extensions/clarification-orchestrator/commands/status.ts` with `handleStatusCommand`
+    - Read `current.json` and `state.json` to display run ID, phase, progress, artifacts, pending decisions, errors, and resume instructions
+    - Avoid parsing markdown artifacts for canonical status
+    - _Requirements: 2.5, 5.4, 10.7, 11.1_
+  - [✅] 5.5 Implement run diff logic
+    - Create `extensions/clarification-orchestrator/commands/diff.ts` and `run-diff.ts`
+    - Compare selected run design snapshots, issues, decisions, and execution summaries
+    - Support default comparison of current run with previous run
+    - Report missing, corrupted, or incomparable artifacts clearly
+    - _Requirements: 2.6, 12.1, 12.2, 12.3_
+  - [✅] 5.6 Implement run cleanup logic
+    - Create `extensions/clarification-orchestrator/commands/clean.ts` and `retention.ts`
+    - Apply retention rules while protecting current run and most recent two runs
+    - Implement `--dry-run` and `--keep N`
+    - Continue only with safe remaining deletions when one deletion fails
+    - _Requirements: 2.7, 12.4, 12.5, 12.6_
+  - [✅]* 5.7 Write artifact store and run management tests
+    - Create `tests/unit/artifact-store.test.ts` for run creation, current pointer fallback, atomic state writes, and artifact paths
+    - Create `tests/unit/run-diff.test.ts` for design, issue, decision, and summary comparison
+    - Create `tests/unit/retention.test.ts` for protected runs, dry-run, keep count, and deletion failures
+    - _Requirements: 5.1, 5.2, 12.1, 12.4, 15.1_
+
+- [✅] 6. Checkpoint - Verify foundations before orchestration
+  - Review package scaffold, schemas, config, path safety, agent discovery, and artifact store APIs for consistency
+  - Confirm requirement references in completed foundation tasks are still valid after any requirements edits
+  - Confirm no workflow phase depends on markdown parsing for canonical state
+  - _Requirements: 1.1, 3.3, 4.4, 5.4, 8.1_
+
+- [✅] 7. Phase 6: Subagent runner and process management
+  - [✅] 7.1 Implement subprocess execution adapter
+    - Create `extensions/clarification-orchestrator/runner.ts` with `runSubagent`, `buildPiProcessArgs`, `spawnPiProcess`, and `parseSubagentResult`
+    - Pass cwd, prompt, model, tools, timeout, output limit, and expected schema into each invocation
+    - Set `BRAINSTORMING_PRO_SUBAGENT=1` for all subagent processes
+    - _Requirements: 6.1, 6.2, 6.5_
+  - [✅] 7.2 Implement process lifecycle and cancellation tracking
+    - Add child process registry with PID/process-group tracking
+    - Implement cancellation handling for user abort and command abort signals
+    - Terminate subprocesses and process groups where supported
+    - _Requirements: 6.6, 10.6, 13.4_
+  - [✅] 7.3 Implement model selection and fallback
+    - Add `resolveAgentModel` using agent config, current pi model, configured fallback models, and model availability/API key checks
+    - Record requested model, fallback path, and actual model used in agent run metadata
+    - Return actionable errors when no configured model can run
+    - _Requirements: 3.1, 10.2, 11.3_
+  - [✅] 7.4 Implement retry, timeout, output limits, and rate-limit backoff
+    - Add retry loop with configurable attempt count and exponential backoff
+    - Classify retryable process/API/rate-limit errors and non-retryable cancellation/validation/safety errors
+    - Enforce per-agent timeout and max output size
+    - _Requirements: 6.6, 10.1, 10.5, 11.3_
+  - [✅] 7.5 Implement bounded reviewer concurrency
+    - Create `extensions/clarification-orchestrator/concurrency.ts` with semaphore/queue helpers
+    - Run reviewer agents concurrently up to configured reviewer concurrency
+    - Keep designer, triager, refiner, and verifier serial
+    - Reduce concurrency for current run when repeated rate-limit errors occur
+    - _Requirements: 6.1, 10.4, 11.1_
+  - [✅] 7.6 Implement output validation and repair integration
+    - Connect `runner.ts` to schema validation and one repair pass
+    - Save raw invalid outputs and repaired outputs to debug artifacts through `artifact-store.ts`
+    - Return phase-consumable success/failure objects instead of throwing unstructured errors
+    - _Requirements: 8.1, 8.8, 10.5, 11.4_
+  - [✅]* 7.7 Write subagent runner tests
+    - Create `tests/unit/runner.test.ts` with mocked process execution for success, stderr capture, timeout, cancellation, output limit, model fallback, rate-limit backoff, and repair pass
+    - Create `tests/unit/concurrency.test.ts` for semaphore ordering and dynamic concurrency reduction
+    - Verify `BRAINSTORMING_PRO_SUBAGENT=1` is set in child environments
+    - _Requirements: 6.1, 6.2, 6.6, 10.1, 15.4_
+
+- [✅] 8. Phase 7: Workflow state machine and phase handlers
+  - [✅] 8.1 Implement workflow engine skeleton
+    - Create `extensions/clarification-orchestrator/workflow.ts` with `ClarificationWorkflow`, `runWorkflow`, `resumeWorkflow`, `transitionPhase`, and `evaluateTermination`
+    - Model INIT, DISCOVERY, INITIAL_DESIGN, REVIEW, TRIAGE, USER_DECISION, REFINE, VERIFY, FINAL_APPROVAL, and COMPLETE phases
+    - Persist state before and after phase transitions
+    - _Requirements: 7.1, 5.4, 10.7_
+  - [✅] 8.2 Implement discovery and initial design phases
+    - Create `extensions/clarification-orchestrator/phases/discovery.ts`
+    - Run designer agent, validate output, write `01-discovery.md`, write initial `design.md`, and snapshot `02-design-v1.md`
+    - Abort safely on persistent designer failure
+    - _Requirements: 7.2, 10.3, 11.3_
+  - [✅] 8.3 Implement review phase
+    - Create `extensions/clarification-orchestrator/phases/review.ts`
+    - Run selected reviewers with bounded concurrency and collect independent structured findings
+    - Apply reviewer partial failure policy and write review markdown/JSON artifacts
+    - _Requirements: 7.3, 10.4, 11.1_
+  - [✅] 8.4 Implement triage phase
+    - Create `extensions/clarification-orchestrator/phases/triage.ts`
+    - Run triager with reviewer findings as untrusted data
+    - Canonicalize issues, assign stable IDs, validate dependencies/conflicts, and write triage artifacts
+    - _Requirements: 7.4, 8.2, 8.4, 8.5_
+  - [✅] 8.5 Implement refinement phase
+    - Create `extensions/clarification-orchestrator/phases/refine.ts`
+    - Pass only accepted decisions and current design to the refiner
+    - Validate returned design content and change log, then have the orchestrator write `design.md` and snapshots
+    - Prevent rejected/deferred items from becoming current requirements
+    - _Requirements: 7.5, 7.6, 8.6, 13.5_
+  - [✅] 8.6 Implement verification phase
+    - Create `extensions/clarification-orchestrator/phases/verify.ts`
+    - Run verifier against accepted issues and refined design
+    - Require verification result coverage for every accepted issue
+    - Detect missing, partial, over-implemented, and severe regression results
+    - _Requirements: 7.7, 8.7, 9.7, 10.5_
+  - [✅] 8.7 Implement loop and maxRounds behavior
+    - Add targeted `VERIFY -> REFINE` loop logic for missing accepted P0/P1 items
+    - Prevent broad re-review unless explicit user approval or severe P0/P1 regression requires it
+    - Handle maxRounds reached by presenting accept/manual-edit/increase/abort options
+    - _Requirements: 7.8, 7.9, 9.7_
+  - [✅] 8.8 Implement final approval and spec-plan handoff
+    - Create `extensions/clarification-orchestrator/phases/final-approval.ts`
+    - Present final design path, verification status, unresolved risks, skipped phases, and unreviewed/unverified flags
+    - On approval, leave final `design.md` in place and print explicit `spec-plan` handoff instructions without auto-invoking it
+    - _Requirements: 7.1, 9.7, 14.1, 14.2, 14.3, 14.4_
+  - [✅]* 8.9 Write workflow integration tests with mocked subagents
+    - Create `tests/integration/workflow.test.ts` covering successful full workflow, no issues flow, missing P0 refinement loop, maxRounds behavior, and final approval handoff
+    - Verify artifacts and state updates after every phase
+    - Verify JSON artifacts are canonical and markdown artifacts are summaries
+    - _Requirements: 7.1, 7.8, 10.7, 14.1, 15.2_
+
+- [✅] 9. Phase 8: User decision gates, non-interactive behavior, and resume
+  - [✅] 9.1 Implement decision gate UI abstraction
+    - Create `extensions/clarification-orchestrator/user-gate.ts` with `presentDecisionGate`, `collectDecision`, `resolveNeedsDiscussion`, and `summarizeDeferredIssues`
+    - Use markdown/numbered prompts compatible with interactive and RPC contexts
+    - Persist decision notes to markdown and JSON artifacts
+    - _Requirements: 9.1, 9.2, 9.4, 5.3_
+  - [✅] 9.2 Implement automation mode defaults
+    - Add `applyManualMode`, `applyHybridMode`, and `applyAutoMode` decision planning helpers
+    - Ensure hybrid mode shows P0/P1, summarizes P2/P3, and surfaces high-cost, low-confidence, conflicts, or scope expansions
+    - Ensure auto mode interrupts for conflict, ambiguity, major scope change, or safety-sensitive decisions
+    - _Requirements: 9.1, 9.2, 9.3_
+  - [✅] 9.3 Implement non-interactive fallback
+    - Detect `ctx.hasUI === false` in command/workflow contexts
+    - Stop manual/hybrid runs after triage with `pending-decisions.md`, state update, and resume instructions
+    - Allow auto mode to proceed only when no user gate is required
+    - _Requirements: 9.5, 9.6, 10.7_
+  - [✅] 9.4 Implement resume command flow
+    - Wire `/clarify <topic> --resume` to `resumeWorkflow`
+    - Resume from discovery, review, triage, decision gate, refinement, verification, or final approval based on `state.json`
+    - Re-display pending decisions or interrupted phase status as needed
+    - _Requirements: 10.6, 10.7, 10.8_
+  - [✅] 9.5 Implement interruption artifacts
+    - Add `writeInterruptedArtifact` to `artifact-store.ts`
+    - Record cancellation phase, completed artifacts, active subagents, errors, and resume instructions in `interrupted.md`
+    - Ensure cancellation updates `state.json` before process cleanup completes
+    - _Requirements: 10.6, 11.1, 5.4_
+  - [✅]* 9.6 Write decision gate and resume tests
+    - Create `tests/integration/decision-gate.test.ts` for manual, hybrid, auto, needs-discussion, and non-interactive flows
+    - Create `tests/integration/resume.test.ts` for interruption after review, at decision gate, during refinement, and with corrupted state recovery
+    - Verify pending decisions and interrupted artifacts are written correctly
+    - _Requirements: 9.1, 9.4, 9.5, 10.7, 15.2_
+
+- [✅] 10. Checkpoint - Verify end-to-end workflow behavior
+  - Run mocked full workflow from `/clarify` command handler through final approval and spec-plan handoff
+  - Confirm cancellation and resume paths do not lose canonical JSON state
+  - Confirm user gates never run when `ctx.hasUI === false` unless RPC UI is available
+  - _Requirements: 7.1, 9.5, 10.6, 10.7, 14.2_
+
+- [✅] 11. Phase 9: Progress reporting, execution logging, debug artifacts, and dry run
+  - [✅] 11.1 Implement progress reporter
+    - Create `extensions/clarification-orchestrator/progress.ts` with `setPhaseProgress`, `setReviewerStatus`, `setActivity`, and `renderProgressSummary`
+    - Use `ctx.ui.notify`, status, or widgets when available and degrade to text output/log entries when unavailable
+    - Track reviewer states pending/running/complete/failed
+    - _Requirements: 11.1, 2.5, 10.4_
+  - [✅] 11.2 Implement execution logger
+    - Create `extensions/clarification-orchestrator/execution-log.ts` with structured phase, agent, retry, recovery, model, usage, and summary events
+    - Write `execution.log.json` and `execution.log.txt` for each run
+    - Ensure log writes are coordinated with state updates
+    - _Requirements: 11.3, 10.1, 10.2_
+  - [✅] 11.3 Implement debug artifact writer
+    - Add `writeDebugInput`, `writeDebugRawOutput`, `writeParseFailure`, and `hashPrompt` helpers
+    - Store agent inputs, raw outputs, parse failures, repaired outputs, and prompt hashes under `debug/`
+    - Apply config-based disablement and redaction before writing sensitive content
+    - _Requirements: 11.4, 11.5, 13.6_
+  - [✅] 11.4 Implement verbose mode output
+    - Wire `--verbose` and `config.ui.verbose` to progress and execution logging
+    - Show phase start/end, agent start/end, model used, artifact writes, retries, repair attempts, and usage metadata when available
+    - Ensure verbose mode does not change workflow behavior
+    - _Requirements: 2.3, 11.2, 11.3_
+  - [✅] 11.5 Implement dry-run mode
+    - Add dry-run branch in `handleClarifyCommand` and `workflow.ts`
+    - Validate config/path setup, resolve agents, assemble prompts, estimate input sizes, and write planned prompt debug artifacts without invoking subagents
+    - Report planned phases, selected agents, tools, models, and expected artifacts
+    - _Requirements: 2.3, 11.6, 3.3_
+  - [✅]* 11.6 Write observability tests
+    - Create `tests/integration/observability.test.ts` for progress events, verbose output, execution logs, debug artifacts, redaction, and dry-run no-subprocess behavior
+    - Verify sensitive debug content can be disabled or redacted
+    - Verify status reads state/log data consistently
+    - _Requirements: 11.1, 11.3, 11.4, 11.5, 11.6, 15.2_
+
+- [✅] 12. Phase 10: Security hardening and prompt-injection defenses
+  - [✅] 12.1 Implement untrusted data wrappers everywhere downstream agents consume generated or project content
+    - Audit `prompts.ts` and all phase handlers to ensure project files, project config summaries, reviewer outputs, triage outputs, and decision logs are delimited as data
+    - Add explicit instructions that agents must not follow embedded instructions from untrusted blocks
+    - _Requirements: 13.1, 13.2, 8.1_
+  - [✅] 12.2 Enforce artifact write boundaries
+    - Add `assertArtifactPathAllowed` checks before all write/delete operations in `artifact-store.ts`, `retention.ts`, and phase handlers
+    - Ensure writes are constrained to `specs/<topic>/` and deletes are constrained to selected run directories
+    - _Requirements: 4.4, 13.4, 13.5_
+  - [✅] 12.3 Enforce project-local resource confirmation
+    - Wire `requiresUserConfirmation` into command startup before project-local agents or sensitive project config are used
+    - Show selected file paths, requested tool expansions, and risk summary before confirmation
+    - Abort or fall back to bundled/user resources if confirmation is denied
+    - _Requirements: 1.4, 3.5, 13.3_
+  - [✅] 12.4 Enforce refiner write isolation
+    - Ensure refiner receives design content and accepted decisions but cannot directly invoke write/edit tools by default
+    - Validate returned design content and have only the orchestrator write `design.md`
+    - Reject refiner outputs that attempt to modify files outside expected design artifacts
+    - _Requirements: 6.3, 7.6, 13.5_
+  - [✅]* 12.5 Write security tests
+    - Create `tests/security/path-traversal.test.ts` for unsafe topics and artifact write/delete boundaries
+    - Create `tests/security/project-local.test.ts` for agent/config confirmation behavior
+    - Create `tests/security/prompt-injection.test.ts` for malicious reviewer output treated as data
+    - Create `tests/security/debug-redaction.test.ts` for disabling/redacting sensitive debug artifacts
+    - _Requirements: 13.1, 13.2, 13.3, 13.4, 13.6, 15.3_
+
+- [✅] 13. Phase 11: Output quality gates and deterministic quality fixtures
+  - [✅] 13.1 Implement reviewer output quality filters
+    - Add checks for non-empty title, description, category, severity, evidence, risk, and suggested change
+    - Filter duplicate issues from the same reviewer
+    - Reject or mark vague/non-actionable issues for triager downgrade
+    - _Requirements: 8.1, 8.3, 15.5_
+  - [✅] 13.2 Implement triager consistency checks
+    - Validate no duplicate canonical issues remain after triage
+    - Validate dependency/conflict references and P0 recommendation consistency
+    - Require explicit justification for high-cost low-confidence P0 issues
+    - _Requirements: 8.4, 8.5, 15.5_
+  - [✅] 13.3 Implement refiner and verifier quality checks
+    - Validate refiner change log maps accepted issue IDs to design changes or no-op justifications
+    - Ensure rejected/deferred issues are not introduced as current requirements
+    - Validate verifier coverage and evidence for every accepted issue
+    - _Requirements: 8.6, 8.7, 7.7_
+  - [✅] 13.4 Add golden fixtures with mocked subagent outputs
+    - Create `tests/fixtures/good-design/` and `tests/fixtures/bad-design/` with sample design, reviewer outputs, triage outputs, decisions, refiner outputs, and verifier outputs
+    - Ensure fixtures exercise no issues, P0 missing, over-implementation, invalid evidence, and dependency conflict cases
+    - _Requirements: 15.2, 15.5, 15.6_
+  - [✅]* 13.5 Write quality gate tests
+    - Create `tests/integration/quality-gates.test.ts` using deterministic fixtures
+    - Verify invalid or low-quality outputs fail before affecting canonical state
+    - Verify live-model prompt evaluation is separate from deterministic CI tests
+    - _Requirements: 8.1, 8.3, 8.6, 8.7, 15.5, 15.6_
+
+- [✅] 14. Phase 12: Final integration, documentation, and release verification
+  - [✅] 14.1 Wire command handlers to full services
+    - Connect `handleClarifyCommand` to option parsing, config loading, path guard, artifact store, agent discovery, workflow engine, progress reporter, and execution logger
+    - Connect `handleStatusCommand`, `handleDiffCommand`, and `handleCleanCommand` to their backing services
+    - Ensure command handlers use `ctx.waitForIdle()` where needed and avoid stale session context after lifecycle operations
+    - _Requirements: 2.1, 2.5, 7.1, 11.1, 12.1_
+  - [✅] 14.2 Finalize bundled agent and prompt wording
+    - Review all files in `agents/`, `prompts/`, and `skills/brainstorming-pro/SKILL.md` for consistency with schemas, trust boundaries, and non-goals
+    - Ensure designer prompt mirrors brainstorming methodology without invoking the existing `brainstorming` skill as a command
+    - Ensure final prompt instructions do not auto-invoke `spec-plan`
+    - _Requirements: 1.4, 13.2, 14.4_
+  - [✅] 14.3 Add user-facing documentation
+    - Create `README.md` with installation, command usage, config examples, artifact layout, security model, troubleshooting, and spec-plan handoff instructions
+    - Document config file paths and example custom reviewer configuration
+    - Document status/resume, diff, clean, dry-run, and verbose usage
+    - _Requirements: 2.1, 3.1, 5.1, 10.7, 12.1, 14.2_
+  - [✅] 14.4 Add package validation and local development scripts
+    - Add `scripts/validate-package.ts` or equivalent npm script to validate package manifest, resource paths, schemas, and bundled agent files
+    - Add npm scripts for unit, integration, security, and full test groups
+    - Add typecheck and lint scripts if the repository toolchain supports them
+    - _Requirements: 1.1, 1.6, 15.1, 15.2, 15.3_
+  - [✅]* 14.5 Run full verification suite
+    - Run unit tests, integration tests, security tests, subagent runner tests, and quality fixture tests
+    - Run dry-run manually against a sample topic and inspect generated prompts/artifacts
+    - Run at least one manual end-to-end clarification with mocked or safe local subagent execution
+    - _Requirements: 15.1, 15.2, 15.3, 15.4, 15.5_
+  - [✅]* 14.6 Review final spec-plan handoff behavior
+    - Confirm final approved design remains at `specs/<topic>/design.md`
+    - Confirm unresolved risks, unverified status, and skipped phases are disclosed in final summary
+    - Confirm the system prints `spec-plan` handoff instructions but does not auto-invoke `spec-plan`
+    - _Requirements: 14.1, 14.2, 14.3, 14.4_
+
+## Notes
+
+- The implementation should prioritize a complete, production-ready foreground clarification workflow rather than a deliberately reduced MVP.
+- Tasks marked with `*` are marked according to the spec-plan task format for tests, verification, and non-essential enhancement work.
+- Deterministic automated tests should use mocked subagent outputs; live-model evaluation should remain manual or non-blocking.
+- Project-local resources and subagent outputs must be treated as untrusted data throughout the implementation.

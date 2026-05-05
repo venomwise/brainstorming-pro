@@ -1,0 +1,4 @@
+{
+  "results": [{ "issueId": "BP-R1-I001", "status": "completed", "evidence": "Design mentions state.json persistence." }],
+  "summary": "Verified."
+}
