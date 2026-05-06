@@ -8,6 +8,7 @@ import { createProgressReporter } from "../progress.ts";
 import { createExecutionLogger } from "../execution-log.ts";
 import { discoverAgents, resolveAllowedTools } from "../agents.ts";
 import { loadConfig, requiresUserConfirmation } from "../config.ts";
+import { ensureFirstRunConfig } from "../first-run-config.ts";
 import { buildAgentTaskPrompt } from "../prompts.ts";
 import { hashPrompt, writeDebugInput } from "../debug-artifacts.ts";
 import { generateTopicCandidates, listExistingSpecTopics } from "../topic-proposal.ts";
@@ -19,7 +20,21 @@ export async function handleClarifyCommand(args: string, ctx: ExtensionCommandCo
     const cwd = process.cwd();
     const hasUI = (ctx as any).hasUI !== false;
 
-    const loadedStartupConfig = await loadConfig(cwd, options);
+    let loadedStartupConfig = await loadConfig(cwd, options);
+    const input = (ctx.ui as any).input?.bind(ctx.ui) as ((title: string, placeholder?: string) => Promise<string | undefined>) | undefined;
+    const hasInteractiveInput = hasUI !== false && Boolean(input);
+
+    if (!options.dryRun && loadedStartupConfig.loadedFiles.length === 0) {
+      if (!hasInteractiveInput) {
+        throw new Error("Brainstorming Pro first-run setup requires interactive UI. Run /clarify once interactively or create ~/.pi/agent/brainstorming-pro/config.json.");
+      }
+      await ensureFirstRunConfig({
+        hasUI,
+        ui: { notify: ctx.ui.notify.bind(ctx.ui), input },
+      });
+      loadedStartupConfig = await loadConfig(cwd, options);
+    }
+
     if (requiresUserConfirmation(loadedStartupConfig.securitySensitiveChanges) && hasUI === false) {
       throw new Error("Project-local security-sensitive Brainstorming Pro config requires interactive confirmation.");
     }
@@ -40,7 +55,7 @@ export async function handleClarifyCommand(args: string, ctx: ExtensionCommandCo
     const candidates = generateTopicCandidates(options.request, existingTopics);
     const confirmedTopic = options.dryRun
       ? candidates.find((candidate) => candidate.strength === "strong")?.slug ?? candidates[0]?.slug ?? options.request
-      : await confirmTopicCandidate({ request: options.request, candidates, ctx: { hasUI, input: (ctx.ui as any).input?.bind(ctx.ui), notify: ctx.ui.notify.bind(ctx.ui) } });
+      : await confirmTopicCandidate({ request: options.request, candidates, ctx: { hasUI, input, notify: ctx.ui.notify.bind(ctx.ui) } });
     options.proposedTopic = candidates[0]?.slug;
     options.confirmedTopic = confirmedTopic;
     const topic = resolveSpecPaths(cwd, confirmedTopic);

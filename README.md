@@ -51,8 +51,8 @@ Example:
     "concurrency": 2
   },
   "models": {
-    "default": "sonnet",
-    "fallback": ["gpt-4o"]
+    "default": "anthropic/claude-sonnet-4",
+    "fallback": ["openai/gpt-4o-mini"]
   },
   "security": {
     "allowProjectAgents": false,
@@ -61,6 +61,10 @@ Example:
   }
 }
 ```
+
+Subagent models must use pi's provider-qualified `provider/model-id` form, such as `anthropic/claude-sonnet-4` or `openai/gpt-4o-mini`. Bare model names such as `sonnet` or `gpt-4o` are rejected because pi could resolve them through an unintended default provider. Brainstorming Pro stores model strings only; it does not support a separate `provider` field, and pi remains the authority for provider/model discovery.
+
+On the first interactive `/clarify` run, if no Brainstorming Pro config file is loaded from the user or project config paths above, Brainstorming Pro runs `pi --list-models`, displays the discovered provider/model choices, asks for one default model and optional fallback models, then writes `~/.pi/agent/brainstorming-pro/config.json`. Non-interactive first use stops with setup guidance; run `/clarify` interactively once or create the config file manually using provider-qualified model IDs from `pi --list-models`.
 
 Project-local agents and security-sensitive project config require confirmation. In non-interactive contexts they are rejected unless explicitly trusted by user-level config.
 

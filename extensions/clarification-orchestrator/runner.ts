@@ -245,10 +245,11 @@ export async function resolveAgentModel(params: {
   modelAvailability?: (model: string) => boolean | Promise<boolean>;
 }): Promise<ModelResolution> {
   const agentConfig = params.config.agents[params.agent.name] ?? {};
-  const requestedModel = params.requestedModel ?? agentConfig.model ?? params.agent.model ?? params.currentModel ?? params.config.models.default;
-  const candidates = [...new Set([requestedModel, ...params.config.models.fallback].filter(Boolean) as string[])];
+  const requestedModel = normalizeModelCandidate(params.requestedModel ?? agentConfig.model ?? params.agent.model ?? params.currentModel ?? params.config.models.default);
+  const candidates = normalizeModelCandidates([requestedModel, ...params.config.models.fallback]);
 
   if (candidates.length === 0) return { requestedModel, actualModel: undefined, fallbackPath: [] };
+  assertProviderQualifiedModels(candidates, params.agent.name);
 
   for (const candidate of candidates) {
     const available = await isModelAvailable(candidate, params.availableModels, params.modelAvailability);
@@ -258,6 +259,38 @@ export async function resolveAgentModel(params: {
   throw workflowError("model-unavailable", `No configured model can run agent ${params.agent.name}. Tried: ${candidates.join(", ")}.`, true, { candidates });
 }
 
+export function normalizeModelCandidate(model: string | undefined): string | undefined {
+  const trimmed = model?.trim();
+  return trimmed ? trimmed : undefined;
+}
+
+function normalizeModelCandidates(models: Array<string | undefined>): string[] {
+  const normalized: string[] = [];
+  for (const model of models) {
+    const candidate = normalizeModelCandidate(model);
+    if (candidate && !normalized.includes(candidate)) normalized.push(candidate);
+  }
+  return normalized;
+}
+
+export function isProviderQualifiedModel(model: string): boolean {
+  const normalized = normalizeModelCandidate(model);
+  if (!normalized) return false;
+  const slash = normalized.indexOf("/");
+  return slash > 0 && slash < normalized.length - 1;
+}
+
+function assertProviderQualifiedModels(models: string[], agentName: string): void {
+  const ambiguous = models.filter((model) => !isProviderQualifiedModel(model));
+  if (ambiguous.length === 0) return;
+  throw workflowError(
+    "model-unavailable",
+    `Ambiguous model configuration for agent ${agentName}: ${ambiguous.join(", ")}. Use provider-qualified model IDs in provider/model-id format such as openai/gpt-4o-mini or anthropic/claude-sonnet-4.`,
+    true,
+    { models, ambiguous, requiredFormat: "provider/model-id" },
+  );
+}
+
 export function buildPiProcessArgs(params: {
   prompt: string;
   model?: string;
@@ -265,8 +298,9 @@ export function buildPiProcessArgs(params: {
   piCommand?: string;
   env?: NodeJS.ProcessEnv;
 }): PiProcessArgs {
-  const args = ["--mode", "json", "--no-session"];
-  if (params.model) args.push("--model", params.model);
+  const args = ["--print", "--mode", "json", "--no-session"];
+  const model = normalizeModelCandidate(params.model);
+  if (model) args.push("--model", model);
   if (params.tools) {
     if (params.tools.length === 0) args.push("--no-tools");
     else args.push("--tools", params.tools.join(","));

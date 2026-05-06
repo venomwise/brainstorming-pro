@@ -4,7 +4,7 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { Type } from "typebox";
-import { buildPiProcessArgs, computeBackoffDelay, runSubagent, resolveAgentModel, type PiProcessResult } from "../../extensions/clarification-orchestrator/runner.ts";
+import { buildPiProcessArgs, computeBackoffDelay, isProviderQualifiedModel, normalizeModelCandidate, runSubagent, resolveAgentModel, type PiProcessResult } from "../../extensions/clarification-orchestrator/runner.ts";
 import { resolveSpecPaths } from "../../extensions/clarification-orchestrator/path-guard.ts";
 import type { AgentDefinition, BrainstormingProConfig } from "../../extensions/clarification-orchestrator/types.ts";
 
@@ -25,7 +25,7 @@ const config: BrainstormingProConfig = {
   agents: {
     "reviewer-product": { timeoutMs: 1000, maxOutputBytes: 1000 },
   },
-  models: { default: "preferred", fallback: ["fallback-model"] },
+  models: { default: "anthropic/preferred", fallback: ["openai/fallback-model"] },
   retry: { maxAttempts: 3, initialDelayMs: 1, maxDelayMs: 5, retryableErrors: ["subagent", "rate-limit", "timeout"] },
   security: { allowProjectAgents: false, allowProjectToolExpansion: false, debugArtifacts: "disabled" },
   artifacts: { retention: { maxRuns: 5, maxAgeDays: 30 } },
@@ -33,18 +33,55 @@ const config: BrainstormingProConfig = {
 };
 
 test("buildPiProcessArgs sets subagent env and tool flags", () => {
-  const args = buildPiProcessArgs({ prompt: "hello", model: "m", tools: ["read", "grep"], env: { EXTRA: "1" } });
+  const args = buildPiProcessArgs({ prompt: "hello", model: " openai/m ", tools: ["read", "grep"], env: { EXTRA: "1" } });
   assert.equal(args.command, "pi");
-  assert.deepEqual(args.args, ["--mode", "json", "--no-session", "--model", "m", "--tools", "read,grep", "hello"]);
+  assert.deepEqual(args.args, ["--print", "--mode", "json", "--no-session", "--model", "openai/m", "--tools", "read,grep", "hello"]);
   assert.equal(args.env.BRAINSTORMING_PRO_SUBAGENT, "1");
   assert.equal(args.env.EXTRA, "1");
 });
 
+test("buildPiProcessArgs omits model and preserves no-tools flag", () => {
+  const args = buildPiProcessArgs({ prompt: "hello", model: "   ", tools: [] });
+  assert.deepEqual(args.args, ["--print", "--mode", "json", "--no-session", "--no-tools", "hello"]);
+});
+
 test("resolveAgentModel falls back to an available configured model", async () => {
-  const resolved = await resolveAgentModel({ agent, config, requestedModel: "missing", availableModels: ["fallback-model"] });
-  assert.equal(resolved.requestedModel, "missing");
-  assert.equal(resolved.actualModel, "fallback-model");
-  assert.deepEqual(resolved.fallbackPath, ["missing", "fallback-model"]);
+  const resolved = await resolveAgentModel({ agent, config, requestedModel: "anthropic/missing", availableModels: ["openai/fallback-model"] });
+  assert.equal(resolved.requestedModel, "anthropic/missing");
+  assert.equal(resolved.actualModel, "openai/fallback-model");
+  assert.deepEqual(resolved.fallbackPath, ["anthropic/missing", "openai/fallback-model"]);
+});
+
+test("resolveAgentModel rejects ambiguous model names", async () => {
+  for (const requestedModel of ["gpt-4o", "/gpt-4o", "openai/"]) {
+    await assert.rejects(
+      resolveAgentModel({ agent, config, requestedModel, availableModels: [requestedModel] }),
+      (error: any) => error?.type === "model-unavailable" && /Ambiguous model configuration.*provider\/model-id/.test(error.message),
+    );
+  }
+  assert.equal(isProviderQualifiedModel(" openai/gpt-4o "), true);
+  assert.equal(isProviderQualifiedModel("gpt-4o"), false);
+  assert.equal(isProviderQualifiedModel("/gpt-4o"), false);
+  assert.equal(isProviderQualifiedModel("openai/"), false);
+  assert.equal(isProviderQualifiedModel("openai/group/gpt-4o"), true);
+  assert.equal(normalizeModelCandidate(" openai/gpt-4o "), "openai/gpt-4o");
+  assert.equal(normalizeModelCandidate("   "), undefined);
+});
+
+test("resolveAgentModel trims ignores empty values and preserves fallback order", async () => {
+  const sparseConfig: BrainstormingProConfig = {
+    ...config,
+    models: { default: "   ", fallback: [" openai/first ", "", "anthropic/second", "openai/first"] },
+  };
+  const resolved = await resolveAgentModel({ agent, config: sparseConfig, availableModels: ["anthropic/second"] });
+  assert.equal(resolved.requestedModel, undefined);
+  assert.equal(resolved.actualModel, "anthropic/second");
+  assert.deepEqual(resolved.fallbackPath, ["openai/first", "anthropic/second"]);
+});
+
+test("resolveAgentModel allows additional slashes in model id", async () => {
+  const resolved = await resolveAgentModel({ agent, config, requestedModel: "gateway/group/gpt-4o", availableModels: ["gateway/group/gpt-4o"] });
+  assert.equal(resolved.actualModel, "gateway/group/gpt-4o");
 });
 
 test("runSubagent returns success and captures stderr from the child process", async () => {
@@ -53,7 +90,7 @@ test("runSubagent returns success and captures stderr from the child process", a
     cwd: process.cwd(),
     prompt: "return json",
     config,
-    availableModels: ["preferred"],
+    availableModels: ["anthropic/preferred"],
     spawnProcess: async () => ({
       exitCode: 0,
       signal: null,
@@ -67,7 +104,7 @@ test("runSubagent returns success and captures stderr from the child process", a
   });
   assert.equal(result.status, "success");
   assert.equal(result.stderr, "warning text");
-  assert.equal(result.actualModel, "preferred");
+  assert.equal(result.actualModel, "anthropic/preferred");
   assert.deepEqual(result.parsedOutput, { ok: true });
 });
 
@@ -79,7 +116,7 @@ test("runSubagent retries rate-limit errors with exponential backoff", async () 
     cwd: process.cwd(),
     prompt: "retry me",
     config,
-    availableModels: ["preferred"],
+    availableModels: ["anthropic/preferred"],
     sleep: async (ms) => {
       delays.push(ms);
     },
@@ -120,7 +157,7 @@ test("runSubagent surfaces timeout cancellation output limit and repair pass", a
     cwd: process.cwd(),
     prompt: "timeout",
     config,
-    availableModels: ["preferred"],
+    availableModels: ["anthropic/preferred"],
     spawnProcess: async () => ({
       exitCode: null,
       signal: null,
@@ -140,7 +177,7 @@ test("runSubagent surfaces timeout cancellation output limit and repair pass", a
     cwd: process.cwd(),
     prompt: "cancel",
     config,
-    availableModels: ["preferred"],
+    availableModels: ["anthropic/preferred"],
     spawnProcess: async () => ({
       exitCode: null,
       signal: null,
@@ -160,7 +197,7 @@ test("runSubagent surfaces timeout cancellation output limit and repair pass", a
     cwd: process.cwd(),
     prompt: "limit",
     config,
-    availableModels: ["preferred"],
+    availableModels: ["anthropic/preferred"],
     spawnProcess: async () => ({
       exitCode: 0,
       signal: null,
@@ -180,7 +217,7 @@ test("runSubagent surfaces timeout cancellation output limit and repair pass", a
     cwd: process.cwd(),
     prompt: "repair",
     config,
-    availableModels: ["preferred"],
+    availableModels: ["anthropic/preferred"],
     expectedSchema: Type.Object({ ok: Type.Boolean() }),
     repair: {
       enabled: true,
@@ -212,7 +249,7 @@ test("runSubagent writes debug artifacts when enabled", async () => {
     cwd,
     prompt: "debug",
     config: { ...config, security: { ...config.security, debugArtifacts: "redacted" } },
-    availableModels: ["preferred"],
+    availableModels: ["anthropic/preferred"],
     artifactPaths: {
       specDir: topic.specDir,
       designPath: topic.designPath,
