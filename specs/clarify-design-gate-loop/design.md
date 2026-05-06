@@ -2,7 +2,7 @@
 
 ## Summary
 
-Change `/clarify` from a topic-first automated clarification command into a request-first, human-gated design workflow. Users will invoke `/clarify <用户需求>` with a natural-language requirement; the system will propose a kebab-case topic, ask the user to confirm or edit it, produce a v0 design using brainstorming-style clarification, and then repeatedly present a design review gate. At each gate, the user chooses whether to approve the current design for `spec-plan` handoff, run a subagent cross-review round, or continue conversational revision.
+Change `/clarify` from a topic-first automated clarification command into a request-first, human-gated design workflow. Users will invoke `/clarify <用户需求>` with a natural-language requirement; the system will propose a kebab-case topic, ask the user to confirm or edit it, produce a v0 design using brainstorming-style clarification, and then repeatedly present a design review gate. At each gate, the user chooses whether to approve the current design for `/spec-plan` handoff, run a subagent cross-review round, or continue conversational revision.
 
 ## Goals
 
@@ -10,7 +10,7 @@ Change `/clarify` from a topic-first automated clarification command into a requ
 - Automatically generate a concise kebab-case topic from the request and confirm or edit it with the user before creating artifacts.
 - Produce a v0 design before launching any cross-review subagents.
 - Present the same design-level gate after every design version:
-  - approve for `spec-plan` handoff;
+  - approve for `/spec-plan` handoff;
   - run cross-review;
   - revise conversationally;
   - save and exit for later resume.
@@ -19,11 +19,12 @@ Change `/clarify` from a topic-first automated clarification command into a requ
 - Apply only user-accepted issues during refinement.
 - Keep durable artifacts for request capture, topic proposal, design versions, review findings, triage, decisions, refinements, final approval, and recovery.
 - Keep `/clarify` simple by exposing only `--resume`, `--verbose`, and `--dry-run`.
-- End with a clear `spec-plan` handoff instruction, not implementation.
+- End with a clear `/spec-plan <topic>` handoff instruction, not implementation.
+- Define Brainstorming Pro as a three-stage lifecycle with explicit user-invoked commands: `/clarify`, `/spec-plan`, and `/spec-exec`.
 
 ## Primary Users / Roles
 
-- **Primary user / product owner**: provides the original requirement, confirms the topic, reviews each design version, decides which review issues to accept/reject/defer/discuss, and approves handoff to `spec-plan`.
+- **Primary user / product owner**: provides the original requirement, confirms the topic, reviews each design version, decides which review issues to accept/reject/defer/discuss, and approves handoff to `/spec-plan`.
 - **Main clarifying agent**: performs the initial brainstorming-style clarification, asks focused questions when needed, drafts v0 design, and supports conversational revisions.
 - **Reviewer agents**: independently inspect a design from product, architecture, risk, and testing perspectives.
 - **Triager agent**: deduplicates reviewer findings, assigns severity and category, explains risk/cost/scope impact, and prepares issues for user decision.
@@ -32,8 +33,10 @@ Change `/clarify` from a topic-first automated clarification command into a requ
 
 ## Non-Goals
 
-- Do not automatically invoke `spec-plan`; the workflow only produces a handoff instruction.
-- Do not implement code or call `spec-exec` from `/clarify`.
+- Do not automatically invoke `/spec-plan`; the workflow only produces a handoff instruction.
+- Do not implement code or call `/spec-exec` from `/clarify`.
+- Do not make `/spec-plan` automatically invoke `/spec-exec`; planning and execution remain separate user-approved stages.
+- Do not fully design the `/spec-plan` or `/spec-exec` workflows in this spec; this change defines their lifecycle boundary and handoff contract only.
 - Do not remove topic/spec directory concepts; topic remains the stable artifact key.
 - Do not expose `--mode`, `--threshold`, `--max-rounds`, or `--reviewers` as `/clarify` parameters.
 - Do not silently auto-accept, auto-reject, or auto-defer review issues.
@@ -76,13 +79,28 @@ The existing artifact structure and management commands remain useful. The redes
 - Refinement will apply only issues explicitly accepted by the user.
 - Each design version will return to the same design review gate.
 - Design review gates include a save-and-exit action so uncertain users can pause without choosing revise/review/approve.
-- `spec-plan` handoff remains explicit and manual.
+- `/spec-plan` handoff remains explicit and manual.
+- Brainstorming Pro will use package-owned lifecycle skill names to avoid collisions with global skills:
+  - `brainstorming-pro` for `/clarify`
+  - `spec-plan-pro` for `/spec-plan`
+  - `spec-exec-pro` for `/spec-exec`
+- `/spec-exec` must not be run until `/spec-plan` has produced user-approved planning artifacts.
 
 ## Proposed Solution
 
-Refactor the `/clarify` workflow into a design gate loop. The command starts by capturing the user's request, proposing a topic, confirming the topic, and producing a v0 design. After v0 and after every later revision/refinement, the workflow pauses at a design review gate with four choices: approve for `spec-plan`, run cross-review, revise conversationally, or save and exit for later resume.
+Refactor the `/clarify` workflow into a design gate loop. The command starts by capturing the user's request, proposing a topic, confirming the topic, and producing a v0 design. After v0 and after every later revision/refinement, the workflow pauses at a design review gate with four choices: approve for `/spec-plan` handoff, run cross-review, revise conversationally, or save and exit for later resume.
 
 When the user chooses cross-review, the orchestrator runs reviewers, triage, an issue decision gate for all findings, refinement of accepted issues only, and then returns to the design review gate. This preserves durable, multi-agent review while ensuring the user remains the authority on scope and trade-offs.
+
+Brainstorming Pro should expose a three-stage lifecycle while preserving explicit human gates between stages:
+
+```text
+/clarify    -> uses brainstorming-pro -> approved design.md
+/spec-plan  -> uses spec-plan-pro     -> approved requirements.md + tasks.md
+/spec-exec  -> uses spec-exec-pro     -> implemented tasks with progress updates
+```
+
+This spec changes `/clarify` and defines the lifecycle handoff contract. It does not fully design `/spec-plan` or `/spec-exec`; those command workflows can be specified separately. `/clarify` must never invoke `/spec-plan` automatically, and `/spec-plan` must never invoke `/spec-exec` automatically.
 
 The artifact layout separates stable handoff files, run metadata, immutable design versions, and review rounds:
 
@@ -119,7 +137,7 @@ specs/<topic>/
       final-approval.md
 ```
 
-`metadata.json` is the canonical run index for resume/status within a run. It records both the detailed workflow phase and a user-facing resume status such as `awaiting-topic-confirmation`, `awaiting-design-gate-decision`, `awaiting-issue-decisions`, `in-cross-review`, `completed`, or `failed`. `specs/<topic>/design.md` remains the stable public design path for handoff to `spec-plan`.
+`metadata.json` is the canonical run index for resume/status within a run. It records both the detailed workflow phase and a user-facing resume status such as `awaiting-topic-confirmation`, `awaiting-design-gate-decision`, `awaiting-issue-decisions`, `in-cross-review`, `completed`, or `failed`. `specs/<topic>/design.md` remains the stable public design path for handoff to `/spec-plan`.
 
 ### Architecture
 
@@ -135,6 +153,7 @@ Clarification Orchestrator Extension
   |-- Artifact Store
   |-- Workflow State Machine
   |-- V0 Brainstorming / Conversational Revision Interface
+  |-- Lifecycle Handoff Manager
   |-- Design Review Gate
   |-- Subagent Runner
   |-- Issue Decision Gate
@@ -188,6 +207,33 @@ DESIGN_REVIEW_GATE
 ```
 
 ### Components
+
+#### Bundled Lifecycle Commands and Skills
+
+Brainstorming Pro should own the command lifecycle and use package-scoped skill names to avoid ambiguity with any globally installed skills.
+
+Commands:
+
+```text
+/clarify <request>          # design clarification and approval
+/spec-plan <topic>          # planning from approved design to requirements/tasks
+/spec-exec <topic>          # execution from approved tasks
+```
+
+Bundled skill responsibilities:
+
+- `brainstorming-pro`: supports `/clarify` by turning an ambiguous natural-language request into an approved `specs/<topic>/design.md`, using the package-owned brainstorming methodology and optional cross-review.
+- `spec-plan-pro`: supports `/spec-plan` by consuming an approved design plus clarification decisions and producing `requirements.md` and `tasks.md` for user approval.
+- `spec-exec-pro`: supports `/spec-exec` by consuming approved tasks, implementing them incrementally, and updating task progress.
+
+Boundary rules:
+
+- `/clarify` is the only command in scope for this design's detailed workflow.
+- `/clarify` may print a structured `/spec-plan <topic>` handoff instruction but must not call `/spec-plan` automatically.
+- `/spec-plan` must not call `/spec-exec` automatically.
+- `/spec-exec` must refuse to run when `requirements.md` or `tasks.md` are missing or not user-approved.
+- If `/spec-plan` discovers missing design context or scope ambiguity, it should route the user back to `/clarify` or request design revision instead of silently expanding scope.
+- If `/spec-exec` discovers scope changes, it should pause and route the user back to `/spec-plan` or `/clarify` rather than modifying approved scope on its own.
 
 #### Argument Parser
 
@@ -287,7 +333,7 @@ The system asks the user to choose a candidate, reuse a similar existing topic, 
 
 #### V0 Brainstorming
 
-The `V0_BRAINSTORMING` phase should share methodology with the existing `brainstorming` skill, but it must not copy/paste the skill text into unrelated extension code or attempt to invoke the skill as a nested command. The implementation should extract the reusable methodology into a package-owned prompt/methodology resource that both `/clarify` and the bundled skill can reference.
+The `V0_BRAINSTORMING` phase should use Brainstorming Pro's package-owned `brainstorming-pro` methodology, but it must not copy/paste the methodology text into unrelated extension code or attempt to invoke the skill as a nested command. The implementation should extract the reusable methodology into a package-owned prompt/methodology resource that both `/clarify` and the bundled `brainstorming-pro` skill can reference.
 
 Recommended structure:
 
@@ -295,9 +341,13 @@ Recommended structure:
 brainstorming-pro/
   prompts/
     brainstorming-methodology.md      # shared methodology: context exploration, fuzziness, questions, convergence, design headings
+    spec-plan-methodology.md          # lifecycle contract for planning from approved design
+    spec-exec-methodology.md          # lifecycle contract for executing approved tasks
     clarify-v0.md                     # clarify-specific wrapper around the shared methodology
   skills/
-    brainstorming-pro/SKILL.md        # references the shared methodology conceptually
+    brainstorming-pro/SKILL.md        # supports /clarify and references the shared methodology conceptually
+    spec-plan-pro/SKILL.md            # supports /spec-plan handoff and planning lifecycle
+    spec-exec-pro/SKILL.md            # supports /spec-exec execution lifecycle
   extensions/clarification-orchestrator/
     phases/v0-brainstorming.ts        # orchestrates state/artifacts/UI, does not embed long methodology text
 ```
@@ -306,16 +356,17 @@ Implementation rules:
 
 - Do not duplicate the full brainstorming methodology in TypeScript. TypeScript owns orchestration, state, artifact writes, and user gates.
 - Put reusable methodology in markdown prompt resources so behavior can be reviewed and updated without code changes.
-- `clarify-v0.md` should include the shared methodology plus clarify-specific constraints: generate `versions/v0/design.md`, stop at `DESIGN_REVIEW_GATE`, do not launch cross-review, do not invoke `spec-plan`.
-- If the existing standalone `brainstorming` skill remains outside this package, record the dependency explicitly: Brainstorming Pro mirrors the public methodology and should be updated when that skill changes materially.
-- If this package later owns both workflows, move the shared methodology into one canonical resource and have both commands/skills load it.
+- `clarify-v0.md` should include the shared methodology plus clarify-specific constraints: generate `versions/v0/design.md`, stop at `DESIGN_REVIEW_GATE`, do not launch cross-review, do not invoke `/spec-plan`.
+- `brainstorming-pro` is the package-owned skill for this methodology; do not depend on an external global `brainstorming` skill being installed.
+- If compatibility with an existing standalone `brainstorming` skill is desired, record any intentional differences explicitly and keep the package-owned methodology canonical for Brainstorming Pro.
 
 Consistency strategy:
 
-- Add a methodology version string in the shared prompt resource, for example `methodologyVersion: brainstorming-v1`.
-- Store the methodology version used for v0 in `metadata.json` and `versions/v0/discovery.md`.
+- Add methodology version strings in the shared prompt resources, for example `brainstorming-pro-v1`, `spec-plan-pro-v1`, and `spec-exec-pro-v1`.
+- Store the brainstorming methodology version used for v0 in `metadata.json` and `versions/v0/discovery.md`.
+- Store the recommended `/spec-plan` and `/spec-exec` methodology versions in `final-approval.md` for lifecycle traceability.
 - Add tests that assert `clarify-v0.md` includes or references the shared methodology resource instead of embedding a divergent copy.
-- Add a documentation checklist item: when the brainstorming skill methodology changes, update the shared methodology resource or consciously record a divergence.
+- Add a documentation checklist item: when a lifecycle methodology changes, update the shared methodology resource or consciously record a divergence.
 
 The phase should:
 
@@ -375,7 +426,7 @@ Current design version: v1
 Path: specs/<topic>/design.md
 
 Choose next action:
-1. approve - approve this design for spec-plan handoff
+1. approve - approve this design for /spec-plan handoff
 2. review  - run cross-review with subagents
 3. revise  - continue conversational clarification/revision
 4. save    - save current progress and exit; resume later with /clarify --resume
@@ -536,7 +587,7 @@ The revision artifact should include:
 
 #### Final Approval / Spec-Plan Handoff
 
-When the user chooses `approve-for-spec-plan`, the workflow writes `final-approval.md`, marks the run complete, and prints an explicit handoff instruction.
+When the user chooses `approve-for-spec-plan`, the workflow writes `final-approval.md`, marks the run complete, and prints an explicit `/spec-plan <topic>` handoff instruction.
 
 The final approval artifact should include:
 
@@ -546,16 +597,20 @@ The final approval artifact should include:
 - number of cross-review rounds;
 - accepted/rejected/deferred issues;
 - unresolved open questions or risks;
-- `spec-plan` target directory and context.
+- `/spec-plan` target directory and context;
+- recommended lifecycle next steps and methodology versions for `spec-plan-pro` and `spec-exec-pro`.
 
 Example handoff:
 
 ```text
-Run spec-plan with:
+Next step: run `/spec-plan <topic>` with:
 - project name: <topic>
 - target directory: specs/<topic>/
-- design: specs/<topic>/design.md
+- approved design: specs/<topic>/design.md
 - clarification artifacts: specs/<topic>/clarification/<run-id>/
+- final approval: specs/<topic>/clarification/<run-id>/final-approval.md
+
+Do not run `/spec-exec <topic>` until `/spec-plan` has produced user-approved `requirements.md` and `tasks.md`.
 ```
 
 ### Data Flow
@@ -752,6 +807,8 @@ Generated or edited topics must be sanitized and validated by existing path guar
 - `metadata.json` stores the latest cross-review progress snapshot for resume/status.
 - Failure artifacts include agent name, role, attempt, model, failure type/message, timestamps, recoverability, and redaction status.
 - Refiner input includes only accepted issue IDs.
+- Final approval prints `/spec-plan <topic>` as the next command and does not invoke it automatically.
+- `/spec-exec <topic>` is not presented as runnable until planning artifacts are user-approved.
 - Workflow transitions support:
   - v0 -> approve -> complete;
   - v0 -> revise -> gate;
