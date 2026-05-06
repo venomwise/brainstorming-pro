@@ -6,6 +6,13 @@ const IssueConfidence = Type.Union([Type.Literal("high"), Type.Literal("medium")
 const EstimatedCost = Type.Union([Type.Literal("low"), Type.Literal("medium"), Type.Literal("high")]);
 const WorkflowPhase = Type.Union([
   Type.Literal("INIT"),
+  Type.Literal("REQUEST_CAPTURE"),
+  Type.Literal("TOPIC_PROPOSAL"),
+  Type.Literal("TOPIC_CONFIRMATION"),
+  Type.Literal("V0_BRAINSTORMING"),
+  Type.Literal("DESIGN_REVIEW_GATE"),
+  Type.Literal("ISSUE_DECISION_GATE"),
+  Type.Literal("CONVERSATIONAL_REVISION"),
   Type.Literal("DISCOVERY"),
   Type.Literal("INITIAL_DESIGN"),
   Type.Literal("REVIEW"),
@@ -86,6 +93,7 @@ export const UserDecisionSchema = Type.Object({
     Type.Literal("accept"),
     Type.Literal("reject"),
     Type.Literal("defer"),
+    Type.Literal("discuss"),
     Type.Literal("needs-discussion"),
   ]),
   reason: Type.Optional(Type.String()),
@@ -139,11 +147,9 @@ export const RefinerOutputSchema = Type.Object({
 });
 
 export const ClarifyOptionsSchema = Type.Object({
-  topic: Type.String({ minLength: 1 }),
-  mode: AutomationMode,
-  maxRounds: Type.Number({ minimum: 0 }),
-  threshold: IssueSeverity,
-  reviewers: Type.Array(Type.String()),
+  request: Type.String(),
+  proposedTopic: Type.Optional(Type.String()),
+  confirmedTopic: Type.Optional(Type.String()),
   resume: Type.Boolean(),
   verbose: Type.Boolean(),
   dryRun: Type.Boolean(),

@@ -222,6 +222,9 @@ test("runSubagent writes debug artifacts when enabled", async () => {
       currentJsonPath: path.join(topic.clarificationDir, "current.json"),
       currentSymlinkPath: path.join(topic.clarificationDir, "current"),
       statePath: path.join(topic.clarificationDir, "run-test", "state.json"),
+      metadataPath: path.join(topic.clarificationDir, "run-test", "metadata.json"),
+      versionsDir: path.join(topic.clarificationDir, "run-test", "versions"),
+      reviewsDir: path.join(topic.clarificationDir, "run-test", "reviews"),
     },
     spawnProcess: async () => ({
       exitCode: 0,

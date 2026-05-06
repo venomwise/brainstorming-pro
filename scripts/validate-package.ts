@@ -8,7 +8,13 @@ const required = [
   "package.json",
   "extensions/clarification-orchestrator/index.ts",
   "skills/brainstorming-pro/SKILL.md",
+  "skills/spec-plan-pro/SKILL.md",
+  "skills/spec-exec-pro/SKILL.md",
   "prompts/clarify.md",
+  "prompts/clarify-v0.md",
+  "prompts/brainstorming-methodology.md",
+  "prompts/spec-plan-methodology.md",
+  "prompts/spec-exec-methodology.md",
   "prompts/clarify-review.md",
   "prompts/clarify-refine.md",
   "agents/designer.md",
@@ -29,6 +35,15 @@ const pkg = JSON.parse(await fs.readFile(path.join(root, "package.json"), "utf8"
 if (!pkg.pi?.extensions?.length) throw new Error("package.json missing pi.extensions");
 if (!pkg.pi?.skills?.length) throw new Error("package.json missing pi.skills");
 if (!pkg.pi?.prompts?.length) throw new Error("package.json missing pi.prompts");
+
+for (const [file, version] of [
+  ["prompts/brainstorming-methodology.md", "brainstorming-pro-v1"],
+  ["prompts/spec-plan-methodology.md", "spec-plan-pro-v1"],
+  ["prompts/spec-exec-methodology.md", "spec-exec-pro-v1"],
+] as const) {
+  const text = await fs.readFile(path.join(root, file), "utf8");
+  if (!text.includes(`methodologyVersion: ${version}`)) throw new Error(`${file} missing ${version}`);
+}
 
 validateConfig(bundledDefaults);
 const agents = await discoverAgents({ packageRoot: root, cwd: root });

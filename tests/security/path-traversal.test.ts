@@ -11,6 +11,10 @@ import { assertDeletionAllowed } from "../../extensions/clarification-orchestrat
 test("unsafe topics and artifact paths are rejected", async () => {
   const cwd = await fs.mkdtemp(path.join(os.tmpdir(), "bp-sec-path-"));
   assert.throws(() => resolveSpecPaths(cwd, "../evil"));
+  assert.throws(() => resolveSpecPaths(cwd, "/tmp/evil"));
+  assert.throws(() => resolveSpecPaths(cwd, "evil/name"));
+  assert.throws(() => resolveSpecPaths(cwd, ".hidden"));
+  assert.throws(() => resolveSpecPaths(cwd, "bad\u0001topic"));
   const topic = resolveSpecPaths(cwd, "Safe Topic");
   const run = await createRun(topic, parseClarifyArgs("Safe Topic"), cwd);
   await assert.rejects(() => writeMarkdownArtifact(run.paths, "../../evil.md", "bad"));

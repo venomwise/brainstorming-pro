@@ -1,53 +1,29 @@
-import type { AutomationMode, CleanOptions, ClarifyOptions, DiffOptions, IssueSeverity, StatusOptions } from "./types.ts";
+import type { CleanOptions, ClarifyOptions, DiffOptions, StatusOptions } from "./types.ts";
 
-const modes = new Set<AutomationMode>(["manual", "hybrid", "auto"]);
-const severities = new Set<IssueSeverity>(["P0", "P1", "P2", "P3"]);
+const removedClarifyOptions = new Set(["--mode", "--threshold", "--max-rounds", "--reviewers"]);
 
 export function parseClarifyArgs(args: string): ClarifyOptions {
   const tokens = tokenizeArgs(args);
-  const topicParts: string[] = [];
+  const requestParts: string[] = [];
   const options: ClarifyOptions = {
-    topic: "",
-    mode: "hybrid",
-    maxRounds: 2,
-    threshold: "P1",
-    reviewers: ["product", "architecture", "risk", "testing"],
+    request: "",
     resume: false,
     verbose: false,
     dryRun: false,
   };
 
-  for (let i = 0; i < tokens.length; i++) {
-    const token = tokens[i];
+  for (const token of tokens) {
     if (!token.startsWith("--")) {
-      topicParts.push(token);
+      requestParts.push(token);
       continue;
     }
 
+    const optionName = token.includes("=") ? token.slice(0, token.indexOf("=")) : token;
+    if (removedClarifyOptions.has(optionName)) {
+      throw new Error(`${optionName} is no longer supported for /clarify. Use package/user/project config for review defaults; public /clarify options are --resume, --verbose, and --dry-run.`);
+    }
+
     switch (token) {
-      case "--mode": {
-        const value = requireValue(tokens, ++i, token);
-        if (!modes.has(value as AutomationMode)) throw new Error(`Invalid --mode '${value}'. Expected manual, hybrid, or auto.`);
-        options.mode = value as AutomationMode;
-        break;
-      }
-      case "--max-rounds": {
-        const value = parseNonNegativeInteger(requireValue(tokens, ++i, token), token);
-        options.maxRounds = value;
-        break;
-      }
-      case "--threshold": {
-        const value = requireValue(tokens, ++i, token);
-        if (!severities.has(value as IssueSeverity)) throw new Error(`Invalid --threshold '${value}'. Expected P0, P1, P2, or P3.`);
-        options.threshold = value as IssueSeverity;
-        break;
-      }
-      case "--reviewers": {
-        const value = requireValue(tokens, ++i, token);
-        options.reviewers = value.split(",").map((item) => item.trim()).filter(Boolean);
-        if (options.reviewers.length === 0) throw new Error("--reviewers must contain at least one reviewer name.");
-        break;
-      }
       case "--resume":
         options.resume = true;
         break;
@@ -58,12 +34,14 @@ export function parseClarifyArgs(args: string): ClarifyOptions {
         options.dryRun = true;
         break;
       default:
-        throw new Error(`Unknown option '${token}'.`);
+        throw new Error(`Unknown option '${token}'. Supported /clarify options are --resume, --verbose, and --dry-run.`);
     }
   }
 
-  options.topic = topicParts.join(" ").trim();
-  if (!options.topic) throw new Error("Missing topic. Usage: /clarify <topic> [options]");
+  options.request = requestParts.join(" ").trim();
+  if (!options.request && !options.resume) {
+    throw new Error("Missing request. Usage: /clarify <request> [--verbose] [--dry-run] or /clarify --resume");
+  }
   return options;
 }
 

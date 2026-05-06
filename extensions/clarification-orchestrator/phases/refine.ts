@@ -1,8 +1,9 @@
 import type { AgentDefinition, BrainstormingProConfig, RefinerOutput, UserDecision, WorkflowError, WorkflowState } from "../types.ts";
 import type { RunPaths } from "../artifact-store.ts";
-import { loadState, saveState, updateStatePhase, writeDesignFile, writeJsonArtifact, writeMarkdownArtifact } from "../artifact-store.ts";
+import { loadState, saveState, updateStatePhase, writeJsonArtifact, writeMarkdownArtifact, writeVersionedDesign } from "../artifact-store.ts";
 import { RefinerOutputSchema } from "../schemas.ts";
 import { buildAgentTaskPrompt } from "../prompts.ts";
+import { assertNoBlockingDiscussedIssues } from "../user-gate.ts";
 import { runSubagent } from "../runner.ts";
 
 export type RefinePhaseParams = {
@@ -21,6 +22,11 @@ export type RefinePhaseParams = {
 export async function runRefinePhase(params: RefinePhaseParams): Promise<WorkflowState> {
   await updateStatePhase(params.paths, "REFINE");
   const accepted = params.decisions.filter((decision) => decision.decision === "accept");
+  const preflightState = await loadState(params.paths);
+  preflightState.pendingDecisions = preflightState.pendingDecisions.filter((id) => !accepted.some((decision) => decision.issueId === id));
+  preflightState.metadata.pendingDecisionIds = preflightState.pendingDecisions;
+  await saveState(params.paths, preflightState);
+  assertNoBlockingDiscussedIssues(preflightState);
   const rejectedOrDeferred = params.decisions.filter((decision) => decision.decision !== "accept").map((decision) => decision.issueId);
   const prompt = buildAgentTaskPrompt({
     topic: params.state.metadata.topic.displayName,
@@ -72,16 +78,27 @@ export async function runRefinePhase(params: RefinePhaseParams): Promise<Workflo
     return state;
   }
 
-  await writeDesignFile(params.paths, result.parsedOutput.revisedDesign);
-  const jsonPath = await writeJsonArtifact(params.paths, `refine-r${state.round}-${state.refinementAttempts + 1}.json`, result.parsedOutput);
+  const nextVersion = state.metadata.latestVersion + 1;
+  const versioned = await writeVersionedDesign(params.paths, nextVersion, result.parsedOutput.revisedDesign);
+  const jsonPath = await writeJsonArtifact(params.paths, `reviews/round-${state.round}/refine.json`, result.parsedOutput);
+  const legacyJsonPath = await writeJsonArtifact(params.paths, `refine-r${state.round}-${state.refinementAttempts + 1}.json`, result.parsedOutput);
   const snapshotPath = await writeMarkdownArtifact(params.paths, `design-r${state.round}-refined-${state.refinementAttempts + 1}.md`, result.parsedOutput.revisedDesign);
-  const changeLogPath = await writeMarkdownArtifact(params.paths, `refine-r${state.round}-${state.refinementAttempts + 1}.md`, renderRefineMarkdown(result.parsedOutput));
+  const changeLogPath = await writeMarkdownArtifact(params.paths, `reviews/round-${state.round}/refine.md`, renderRefineMarkdown(result.parsedOutput));
 
   state.refinementAttempts += 1;
+  state.metadata.latestVersion = nextVersion;
+  state.designVersions ??= [];
+  state.designVersions.push({
+    version: nextVersion,
+    designPath: versioned.versionPath,
+    changeSummary: `Refined accepted issues: ${accepted.map((decision) => decision.issueId).join(", ") || "none"}`,
+    methodologyVersions: state.metadata.methodologyVersions,
+    createdAt: new Date().toISOString(),
+  });
   state.acceptedIssueIds = accepted.map((decision) => decision.issueId);
   state.rejectedIssueIds = params.decisions.filter((decision) => decision.decision === "reject").map((decision) => decision.issueId);
   state.deferredIssueIds = params.decisions.filter((decision) => decision.decision === "defer").map((decision) => decision.issueId);
-  for (const artifactPath of [params.paths.designPath, jsonPath, snapshotPath, changeLogPath]) {
+  for (const artifactPath of [params.paths.designPath, versioned.versionPath, jsonPath, legacyJsonPath, snapshotPath, changeLogPath]) {
     if (!state.completedArtifacts.includes(artifactPath)) state.completedArtifacts.push(artifactPath);
   }
   await saveState(params.paths, state);

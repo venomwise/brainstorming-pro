@@ -167,6 +167,6 @@ test("verification loop requests targeted refinement until maxRounds", async () 
   env.state.verification.unresolvedP0P1 = ["BP-R1-I001"];
   env.state.refinementAttempts = 0;
   assert.deepEqual(evaluateVerificationLoop(env.state), { action: "refine", issueIds: ["BP-R1-I001"] });
-  env.state.refinementAttempts = env.state.options.maxRounds;
+  env.state.refinementAttempts = 2;
   assert.equal(evaluateVerificationLoop(env.state).action, "max-rounds-reached");
 });

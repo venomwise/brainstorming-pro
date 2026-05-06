@@ -2,28 +2,40 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { parseClarifyArgs, parseCleanArgs, parseDiffArgs, tokenizeArgs } from "../../extensions/clarification-orchestrator/options.ts";
 
-test("parseClarifyArgs applies defaults", () => {
-  const options = parseClarifyArgs("my feature");
-  assert.equal(options.topic, "my feature");
-  assert.equal(options.mode, "hybrid");
-  assert.equal(options.maxRounds, 2);
-  assert.deepEqual(options.reviewers, ["product", "architecture", "risk", "testing"]);
+test("parseClarifyArgs preserves natural-language request", () => {
+  const options = parseClarifyArgs("build a better onboarding flow");
+  assert.equal(options.request, "build a better onboarding flow");
+  assert.equal(options.resume, false);
+  assert.equal(options.verbose, false);
+  assert.equal(options.dryRun, false);
+  assert.equal("topic" in options, false);
 });
 
-test("parseClarifyArgs parses options", () => {
-  const options = parseClarifyArgs('"my feature" --mode auto --max-rounds 3 --threshold P2 --reviewers product,risk --resume --verbose --dry-run');
-  assert.equal(options.topic, "my feature");
-  assert.equal(options.mode, "auto");
-  assert.equal(options.maxRounds, 3);
-  assert.equal(options.threshold, "P2");
-  assert.deepEqual(options.reviewers, ["product", "risk"]);
-  assert.equal(options.resume, true);
+test("parseClarifyArgs preserves quoted and Chinese request text", () => {
+  const options = parseClarifyArgs('"改进 登录 流程" --verbose --dry-run');
+  assert.equal(options.request, "改进 登录 流程");
   assert.equal(options.verbose, true);
   assert.equal(options.dryRun, true);
 });
 
-test("parseClarifyArgs rejects invalid mode", () => {
-  assert.throws(() => parseClarifyArgs("x --mode fast"), /Invalid --mode/);
+test("parseClarifyArgs supports resume without request", () => {
+  const options = parseClarifyArgs("--resume");
+  assert.equal(options.request, "");
+  assert.equal(options.resume, true);
+});
+
+test("parseClarifyArgs rejects missing request without resume", () => {
+  assert.throws(() => parseClarifyArgs(""), /Missing request.*\/clarify <request>/);
+});
+
+test("parseClarifyArgs rejects removed options", () => {
+  for (const removed of ["--mode auto", "--threshold P2", "--max-rounds 3", "--reviewers product,risk"]) {
+    assert.throws(() => parseClarifyArgs(`request ${removed}`), /no longer supported/);
+  }
+});
+
+test("parseClarifyArgs rejects unknown options", () => {
+  assert.throws(() => parseClarifyArgs("request --unknown"), /Unknown option/);
 });
 
 test("parseDiffArgs requires both run IDs", () => {

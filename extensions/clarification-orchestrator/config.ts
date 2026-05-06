@@ -138,13 +138,8 @@ export function requiresUserConfirmation(changes: SecuritySensitiveChange[]): bo
 
 function applyCommandOverrides(config: BrainstormingProConfig, overrides: Partial<ClarifyOptions>): BrainstormingProConfig {
   const result = structuredClone(config);
-  if (overrides.mode) result.defaults.mode = overrides.mode;
-  if (overrides.maxRounds !== undefined) result.defaults.maxRounds = overrides.maxRounds;
-  if (overrides.threshold) result.defaults.threshold = overrides.threshold;
-  if (overrides.reviewers) {
-    result.reviewers.enabled = [...overrides.reviewers];
-    result.reviewers.disabled = [];
-  }
+  // /clarify no longer exposes automation, threshold, max-round, or reviewer
+  // command overrides. Those values remain package/user/project config only.
   if (overrides.verbose !== undefined) result.ui.verbose = overrides.verbose;
   return result;
 }

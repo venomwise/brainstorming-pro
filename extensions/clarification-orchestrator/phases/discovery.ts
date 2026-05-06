@@ -1,6 +1,6 @@
 import type { AgentDefinition, BrainstormingProConfig, DesignerOutput, WorkflowError, WorkflowState } from "../types.ts";
 import type { RunPaths } from "../artifact-store.ts";
-import { recordCompletedArtifact, saveState, updateStatePhase, writeDesignFile, writeJsonArtifact, writeMarkdownArtifact } from "../artifact-store.ts";
+import { recordCompletedArtifact, saveState, updateStatePhase, writeJsonArtifact, writeMarkdownArtifact, writeVersionedDesign } from "../artifact-store.ts";
 import { DesignerOutputSchema } from "../schemas.ts";
 import { buildAgentTaskPrompt } from "../prompts.ts";
 import { runSubagent } from "../runner.ts";
@@ -63,21 +63,56 @@ export async function runDiscoveryPhase(params: DiscoveryPhaseParams): Promise<W
     return state;
   }
 
-  await writeDesignFile(params.paths, result.parsedOutput.designMarkdown);
+  const versioned = await writeVersionedDesign(params.paths, 0, result.parsedOutput.designMarkdown);
   await recordCompletedArtifact(params.paths, params.paths.designPath);
 
-  const discoveryPath = await writeMarkdownArtifact(params.paths, "01-discovery.md", result.parsedOutput.discoveryMarkdown);
-  const designSnapshotPath = await writeMarkdownArtifact(params.paths, "02-design-v1.md", result.parsedOutput.designMarkdown);
-  const jsonPath = await writeJsonArtifact(params.paths, "01-discovery.json", result.parsedOutput);
+  const discoveryPath = await writeMarkdownArtifact(params.paths, "versions/v0/discovery.md", result.parsedOutput.discoveryMarkdown);
+  const legacyDiscoveryPath = await writeMarkdownArtifact(params.paths, "01-discovery.md", result.parsedOutput.discoveryMarkdown);
+  const legacyDesignSnapshotPath = await writeMarkdownArtifact(params.paths, "02-design-v1.md", result.parsedOutput.designMarkdown);
+  const jsonPath = await writeJsonArtifact(params.paths, "versions/v0/discovery.json", {
+    ...result.parsedOutput,
+    requestSummary: params.state.metadata.requestSummary,
+    assumptions: extractSection(result.parsedOutput.discoveryMarkdown, "assumptions"),
+    blindSpots: extractSection(result.parsedOutput.discoveryMarkdown, "blind spots"),
+    methodologyVersions: params.state.metadata.methodologyVersions,
+  });
 
   const updated = await loadStateForMutation(params.paths);
-  for (const artifactPath of [discoveryPath, designSnapshotPath, jsonPath]) {
+  for (const artifactPath of [discoveryPath, legacyDiscoveryPath, legacyDesignSnapshotPath, versioned.versionPath, jsonPath]) {
     if (!updated.completedArtifacts.includes(artifactPath)) updated.completedArtifacts.push(artifactPath);
   }
   if (!updated.completedArtifacts.includes(params.paths.designPath)) updated.completedArtifacts.push(params.paths.designPath);
-  updated.phase = "INITIAL_DESIGN";
+  updated.phase = "DESIGN_REVIEW_GATE";
+  updated.metadata.currentPhase = "DESIGN_REVIEW_GATE";
+  updated.metadata.resumeStatus = "awaiting-design-gate-decision";
+  updated.metadata.latestVersion = Math.max(updated.metadata.latestVersion, 0);
+  updated.metadata.methodologyVersions = params.state.metadata.methodologyVersions;
+  updated.designVersions ??= [];
+  if (!updated.designVersions.some((item) => item.version === 0)) {
+    updated.designVersions.push({
+      version: 0,
+      designPath: versioned.versionPath,
+      discoveryPath,
+      changeSummary: "Initial V0 brainstorming design.",
+      methodologyVersions: updated.metadata.methodologyVersions,
+      createdAt: new Date().toISOString(),
+    });
+  }
   await saveState(params.paths, updated);
   return updated;
+}
+
+function extractSection(markdown: string, title: string): string[] {
+  const lines = markdown.split(/\r?\n/u);
+  const start = lines.findIndex((line) => new RegExp(`^#{1,6}\\s+${title}`, "iu").test(line));
+  if (start === -1) return [];
+  const body: string[] = [];
+  for (const line of lines.slice(start + 1)) {
+    if (/^#{1,6}\s/u.test(line)) break;
+    const trimmed = line.replace(/^[-*]\s*/u, "").trim();
+    if (trimmed) body.push(trimmed);
+  }
+  return body;
 }
 
 async function loadStateForMutation(paths: RunPaths): Promise<WorkflowState> {

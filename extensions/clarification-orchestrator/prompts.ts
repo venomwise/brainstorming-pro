@@ -16,6 +16,22 @@ export async function loadPromptFragment(packageRoot: string, name: string): Pro
   return fs.readFile(file, "utf8");
 }
 
+export async function loadClarifyV0Prompt(packageRoot: string): Promise<{ prompt: string; methodologyVersion: string }> {
+  const [methodology, clarify] = await Promise.all([
+    loadPromptFragment(packageRoot, "brainstorming-methodology"),
+    loadPromptFragment(packageRoot, "clarify-v0"),
+  ]);
+  const methodologyVersion = extractMethodologyVersion(methodology) ?? "brainstorming-pro-v1";
+  return {
+    methodologyVersion,
+    prompt: [methodology, "", clarify].join("\n"),
+  };
+}
+
+export function extractMethodologyVersion(markdown: string): string | undefined {
+  return markdown.match(/^methodologyVersion:\s*([^\n]+)$/m)?.[1]?.trim();
+}
+
 export function buildAgentSystemPrompt(agent: AgentDefinition, fragments: string[] = []): string {
   return [
     `# Agent: ${agent.name}`,

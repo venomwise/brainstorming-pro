@@ -49,7 +49,8 @@ export function validateTopicSafety(topic: string): void {
   if (path.isAbsolute(topic)) throw new Error("Topic must not be an absolute path.");
   if (topic.includes("..")) throw new Error("Topic must not contain '..'.");
   if (topic.includes("/") || topic.includes("\\")) throw new Error("Topic must not contain path separators.");
-  if (/\0/.test(topic)) throw new Error("Topic must not contain null bytes.");
+  if (/[\u0000-\u001f\u007f]/u.test(topic)) throw new Error("Topic must not contain control characters.");
+  if (/^\./u.test(topic.trim())) throw new Error("Topic must not start with a dot.");
 }
 
 export function resolveSpecPaths(cwd: string, topic: string): TopicInfo {

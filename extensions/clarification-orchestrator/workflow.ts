@@ -1,6 +1,6 @@
 import type { RunPaths } from "./artifact-store.ts";
 import { appendStateError, loadState, saveState, updateStatePhase } from "./artifact-store.ts";
-import type { ClarifyOptions, WorkflowError, WorkflowPhase, WorkflowState } from "./types.ts";
+import type { BrainstormingProConfig, ClarifyOptions, ResumeStatus, WorkflowError, WorkflowPhase, WorkflowState } from "./types.ts";
 
 export type WorkflowContext = {
   hasUI: boolean;
@@ -11,20 +11,17 @@ export type WorkflowServices = {
   paths: RunPaths;
   ctx: WorkflowContext;
   options: ClarifyOptions;
+  config?: BrainstormingProConfig;
   onPhase?: (phase: WorkflowPhase, state: WorkflowState) => Promise<void> | void;
 };
 
-const phaseOrder: WorkflowPhase[] = [
+const designGatePhaseOrder: WorkflowPhase[] = [
   "INIT",
-  "DISCOVERY",
-  "INITIAL_DESIGN",
-  "REVIEW",
-  "TRIAGE",
-  "USER_DECISION",
-  "REFINE",
-  "VERIFY",
-  "FINAL_APPROVAL",
-  "COMPLETE",
+  "REQUEST_CAPTURE",
+  "TOPIC_PROPOSAL",
+  "TOPIC_CONFIRMATION",
+  "V0_BRAINSTORMING",
+  "DESIGN_REVIEW_GATE",
 ];
 
 export class ClarificationWorkflow {
@@ -38,9 +35,9 @@ export class ClarificationWorkflow {
     let state = await loadState(this.services.paths);
     await this.persistPhase("INIT");
 
-    for (const phase of phaseOrder.slice(1)) {
+    for (const phase of designGatePhaseOrder.slice(1)) {
       state = await this.transitionPhase(phase);
-      if (this.evaluateTermination(state)) break;
+      if (phase === "DESIGN_REVIEW_GATE" || this.evaluateTermination(state)) break;
     }
 
     return loadState(this.services.paths);
@@ -48,9 +45,9 @@ export class ClarificationWorkflow {
 
   async resumeWorkflow(): Promise<WorkflowState> {
     const state = await loadState(this.services.paths);
-    const nextPhase = nextRecoverablePhase(state.phase);
-    if (!nextPhase) return state;
-    return this.transitionPhase(nextPhase);
+    const resumePhase = phaseForResumeStatus(state.metadata.resumeStatus, state.phase);
+    if (!resumePhase || resumePhase === state.phase) return state;
+    return this.transitionPhase(resumePhase);
   }
 
   async transitionPhase(phase: WorkflowPhase): Promise<WorkflowState> {
@@ -106,7 +103,8 @@ export type VerificationLoopDecision =
 export function evaluateVerificationLoop(state: WorkflowState): VerificationLoopDecision {
   const unresolved = state.verification.unresolvedP0P1;
   if (unresolved.length === 0) return { action: "complete" };
-  if (state.refinementAttempts < state.options.maxRounds) return { action: "refine", issueIds: unresolved };
+  const maxRounds = state.metadata.latestVersion === undefined ? 2 : Math.max(0, state.metadata.latestVersion + 2);
+  if (state.refinementAttempts < maxRounds) return { action: "refine", issueIds: unresolved };
   return {
     action: "max-rounds-reached",
     issueIds: unresolved,
@@ -123,8 +121,19 @@ export async function applyVerificationLoopDecision(paths: RunPaths, decision: V
   return state;
 }
 
-function nextRecoverablePhase(current: WorkflowPhase): WorkflowPhase | undefined {
-  const index = phaseOrder.indexOf(current);
-  if (index === -1) return undefined;
-  return phaseOrder[index + 1];
+function phaseForResumeStatus(status: ResumeStatus, current: WorkflowPhase): WorkflowPhase | undefined {
+  switch (status) {
+    case "awaiting-topic-confirmation":
+      return "TOPIC_CONFIRMATION";
+    case "awaiting-design-gate-decision":
+      return "DESIGN_REVIEW_GATE";
+    case "awaiting-issue-decisions":
+      return "ISSUE_DECISION_GATE";
+    case "in-cross-review":
+      return current === "REVIEW" ? "TRIAGE" : "REVIEW";
+    case "recoverable-failure":
+      return current;
+    case "completed":
+      return undefined;
+  }
 }

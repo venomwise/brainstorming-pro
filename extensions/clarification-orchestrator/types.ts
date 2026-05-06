@@ -2,8 +2,76 @@ export type AutomationMode = "manual" | "hybrid" | "auto";
 export type IssueSeverity = "P0" | "P1" | "P2" | "P3";
 export type IssueConfidence = "high" | "medium" | "low";
 export type EstimatedCost = "low" | "medium" | "high";
-export type DecisionState = "accept" | "reject" | "defer" | "needs-discussion";
+export type DecisionState = "accept" | "reject" | "defer" | "discuss" | "needs-discussion";
 export type VerificationStatus = "completed" | "partially-completed" | "missing" | "over-implemented";
+
+export type ResumeStatus =
+  | "awaiting-topic-confirmation"
+  | "awaiting-design-gate-decision"
+  | "awaiting-issue-decisions"
+  | "in-cross-review"
+  | "recoverable-failure"
+  | "completed";
+
+export type DesignGateAction = "approve" | "review" | "revise" | "save";
+
+export type DesignGateDecision = {
+  id: string;
+  version: number;
+  action: DesignGateAction;
+  reason?: string;
+  createdAt: string;
+};
+
+export type TopicCandidateStrength = "strong" | "weak" | "duplicate" | "unsafe";
+
+export type TopicCandidate = {
+  slug: string;
+  displayName: string;
+  sourcePhrase: string;
+  language?: string;
+  gloss?: string;
+  strength: TopicCandidateStrength;
+  warnings: string[];
+  exactConflict?: boolean;
+  similarTopics?: string[];
+};
+
+export type CrossReviewReviewerStatus = "queued" | "running" | "succeeded" | "failed" | "retrying";
+
+export type CrossReviewProgress = {
+  round: number;
+  quorumRequired: number;
+  quorumSucceeded: number;
+  reviewers: Array<{
+    name: string;
+    status: CrossReviewReviewerStatus;
+    attempt: number;
+    startedAt?: string;
+    updatedAt?: string;
+    completedAt?: string;
+    issueCount?: number;
+    artifactPath?: string;
+    error?: WorkflowError;
+  }>;
+  updatedAt: string;
+};
+
+export type LifecycleMethodologyVersions = {
+  brainstorming: "brainstorming-pro-v1" | string;
+  specPlan?: "spec-plan-pro-v1" | string;
+  specExec?: "spec-exec-pro-v1" | string;
+};
+
+export type DesignVersionMetadata = {
+  version: number;
+  designPath: string;
+  discoveryPath?: string;
+  revisionPath?: string;
+  changeSummary?: string;
+  methodologyVersions: LifecycleMethodologyVersions;
+  createdAt: string;
+};
 export type AgentRole =
   | "designer"
   | "reviewer"
@@ -13,6 +81,13 @@ export type AgentRole =
 
 export type WorkflowPhase =
   | "INIT"
+  | "REQUEST_CAPTURE"
+  | "TOPIC_PROPOSAL"
+  | "TOPIC_CONFIRMATION"
+  | "V0_BRAINSTORMING"
+  | "DESIGN_REVIEW_GATE"
+  | "ISSUE_DECISION_GATE"
+  | "CONVERSATIONAL_REVISION"
   | "DISCOVERY"
   | "INITIAL_DESIGN"
   | "REVIEW"
@@ -115,11 +190,9 @@ export type RefinerOutput = {
 };
 
 export type ClarifyOptions = {
-  topic: string;
-  mode: AutomationMode;
-  maxRounds: number;
-  threshold: IssueSeverity;
-  reviewers: string[];
+  request: string;
+  proposedTopic?: string;
+  confirmedTopic?: string;
   resume: boolean;
   verbose: boolean;
   dryRun: boolean;
@@ -152,6 +225,17 @@ export type TopicInfo = {
 export type RunMetadata = {
   runId: string;
   topic: TopicInfo;
+  request?: string;
+  requestSummary?: string;
+  proposedTopic?: string;
+  confirmedTopic?: string;
+  resumeStatus: ResumeStatus;
+  currentPhase: WorkflowPhase;
+  latestVersion: number;
+  activeRound: number;
+  pendingDecisionIds: string[];
+  resumeHint: string;
+  methodologyVersions: LifecycleMethodologyVersions;
   createdAt: string;
   updatedAt: string;
   cwd: string;
@@ -249,6 +333,9 @@ export type WorkflowState = {
   refinementAttempts: number;
   completedArtifacts: string[];
   pendingDecisions: string[];
+  designVersions?: DesignVersionMetadata[];
+  designGateDecisions?: DesignGateDecision[];
+  crossReviewProgress?: CrossReviewProgress;
   acceptedIssueIds: string[];
   rejectedIssueIds: string[];
   deferredIssueIds: string[];

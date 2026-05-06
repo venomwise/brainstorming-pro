@@ -1,6 +1,6 @@
-import type { AgentDefinition, AgentRunResult, BrainstormingProConfig, ReviewerOutput, WorkflowError, WorkflowState } from "../types.ts";
+import type { AgentDefinition, AgentRunResult, BrainstormingProConfig, CrossReviewProgress, ReviewerOutput, WorkflowError, WorkflowState } from "../types.ts";
 import type { RunPaths } from "../artifact-store.ts";
-import { loadState, saveState, updateStatePhase, writeJsonArtifact, writeMarkdownArtifact } from "../artifact-store.ts";
+import { loadState, saveState, updateStatePhase, writeJsonArtifact, writeMarkdownArtifact, writeReviewRoundArtifact } from "../artifact-store.ts";
 import { ReviewerOutputSchema } from "../schemas.ts";
 import { buildAgentTaskPrompt } from "../prompts.ts";
 import { runBounded } from "../concurrency.ts";
@@ -64,9 +64,26 @@ export async function runReviewPhase(params: ReviewPhaseParams): Promise<Workflo
   }));
 
   const successful = artifacts.filter((artifact) => artifact.status === "success");
-  const successRatio = params.reviewers.length === 0 ? 1 : successful.length / params.reviewers.length;
-  const jsonPath = await writeJsonArtifact(params.paths, `review-r${params.state.round}.json`, { reviewers: artifacts });
-  const markdownPath = await writeMarkdownArtifact(params.paths, `review-r${params.state.round}.md`, renderReviewMarkdown(artifacts));
+  const quorumRequired = Math.min(3, params.reviewers.length || 0);
+  const progress: CrossReviewProgress = {
+    round: params.state.round,
+    quorumRequired,
+    quorumSucceeded: successful.length,
+    reviewers: artifacts.map((artifact) => ({
+      name: artifact.reviewer,
+      status: artifact.status === "success" ? "succeeded" : "failed",
+      attempt: 1,
+      updatedAt: new Date().toISOString(),
+      completedAt: new Date().toISOString(),
+      issueCount: artifact.issues.length,
+      error: artifact.error,
+    })),
+    updatedAt: new Date().toISOString(),
+  };
+  const jsonPath = await writeReviewRoundArtifact(params.paths, params.state.round, "review.json", { reviewers: artifacts, progress });
+  const markdownPath = await writeReviewRoundArtifact(params.paths, params.state.round, "review.md", renderReviewMarkdown(artifacts));
+  const legacyJsonPath = await writeJsonArtifact(params.paths, `review-r${params.state.round}.json`, { reviewers: artifacts });
+  const legacyMarkdownPath = await writeMarkdownArtifact(params.paths, `review-r${params.state.round}.md`, renderReviewMarkdown(artifacts));
 
   const state = await loadState(params.paths);
   state.execution.agentRuns += results.length;
@@ -77,16 +94,17 @@ export async function runReviewPhase(params: ReviewPhaseParams): Promise<Workflo
     issueCount: artifact.issues.length,
     error: artifact.error,
   }));
-  for (const artifactPath of [jsonPath, markdownPath]) {
+  state.crossReviewProgress = progress;
+  state.metadata.resumeStatus = successful.length < quorumRequired ? "in-cross-review" : state.metadata.resumeStatus;
+  for (const artifactPath of [jsonPath, markdownPath, legacyJsonPath, legacyMarkdownPath]) {
     if (!state.completedArtifacts.includes(artifactPath)) state.completedArtifacts.push(artifactPath);
   }
 
-  if (successRatio < 0.5) {
-    state.phase = "ABORTED";
-    state.execution.status = "failed";
+  if (successful.length < quorumRequired) {
+    state.phase = "REVIEW";
     state.errors.push({
       type: "subagent",
-      message: `Review phase failed success-ratio policy: ${successful.length}/${params.reviewers.length} reviewers succeeded.`,
+      message: `Review quorum not met: ${successful.length}/${params.reviewers.length} reviewers succeeded; ${quorumRequired} required before triage.`,
       phase: "REVIEW",
       recoverable: true,
       occurredAt: new Date().toISOString(),

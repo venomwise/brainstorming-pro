@@ -32,12 +32,12 @@ export async function compareRuns(topic: TopicInfo, run1?: string, run2?: string
 
   const dir1 = path.join(topic.clarificationDir, run1);
   const dir2 = path.join(topic.clarificationDir, run2);
-  const design1 = await readOptional(path.join(dir1, "design.md")) ?? (await readOptional(path.join(dir1, "02-design-v1.md"))) ?? "";
-  const design2 = await readOptional(path.join(dir2, "design.md")) ?? (await readOptional(path.join(dir2, "02-design-v1.md"))) ?? "";
-  const issues1 = await readIds(path.join(dir1, "triage-r1.json"), "issues");
-  const issues2 = await readIds(path.join(dir2, "triage-r1.json"), "issues");
-  const decisions1 = await readIds(path.join(dir1, "decisions-r1.json"), "decisions", "issueId");
-  const decisions2 = await readIds(path.join(dir2, "decisions-r1.json"), "decisions", "issueId");
+  const design1 = await readLatestDesign(dir1);
+  const design2 = await readLatestDesign(dir2);
+  const issues1 = await readReviewIds(dir1, "triage", "issues");
+  const issues2 = await readReviewIds(dir2, "triage", "issues");
+  const decisions1 = await readReviewIds(dir1, "decisions", "decisions", "issueId");
+  const decisions2 = await readReviewIds(dir2, "decisions", "decisions", "issueId");
 
   return {
     topic: topic.displayName,
@@ -59,6 +59,39 @@ function diffIds(left: string[], right: string[]) {
   };
 }
 
+async function readLatestDesign(runDir: string): Promise<string> {
+  const metadata = await readJsonOptional(path.join(runDir, "metadata.json"));
+  const latestVersion = typeof metadata?.latestVersion === "number" ? metadata.latestVersion : undefined;
+  if (latestVersion !== undefined) {
+    const versioned = await readOptional(path.join(runDir, "versions", `v${latestVersion}`, "design.md"));
+    if (versioned !== undefined) return versioned;
+  }
+  return await readOptional(path.join(runDir, "design.md")) ?? (await readOptional(path.join(runDir, "02-design-v1.md"))) ?? "";
+}
+
+async function readReviewIds(runDir: string, baseName: string, arrayKey: string, idKey = "id"): Promise<string[]> {
+  const latest = await latestReviewRoundDir(runDir);
+  if (latest) {
+    const ids = await readIds(path.join(latest, `${baseName}.json`), arrayKey, idKey);
+    if (ids.length) return ids;
+  }
+  return readIds(path.join(runDir, `${baseName}-r1.json`), arrayKey, idKey);
+}
+
+async function latestReviewRoundDir(runDir: string): Promise<string | undefined> {
+  try {
+    const reviewsDir = path.join(runDir, "reviews");
+    const entries = await fs.readdir(reviewsDir, { withFileTypes: true });
+    const rounds = entries
+      .filter((entry) => entry.isDirectory() && /^round-\d+$/u.test(entry.name))
+      .map((entry) => ({ name: entry.name, round: Number(entry.name.slice("round-".length)) }))
+      .sort((a, b) => b.round - a.round);
+    return rounds[0] ? path.join(reviewsDir, rounds[0].name) : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 async function readIds(file: string, arrayKey: string, idKey = "id"): Promise<string[]> {
   try {
     const data = JSON.parse(await fs.readFile(file, "utf8"));
@@ -67,6 +100,14 @@ async function readIds(file: string, arrayKey: string, idKey = "id"): Promise<st
     return array.map((item) => item?.[idKey]).filter((id): id is string => typeof id === "string");
   } catch {
     return [];
+  }
+}
+
+async function readJsonOptional(file: string): Promise<any | undefined> {
+  try {
+    return JSON.parse(await fs.readFile(file, "utf8"));
+  } catch {
+    return undefined;
   }
 }
 
