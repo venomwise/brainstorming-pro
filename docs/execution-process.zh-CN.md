@@ -2,6 +2,10 @@
 
 本文面向不熟悉 TypeScript 和 pi extension 机制的读者，解释 **Brainstorming Pro** 从“用户输入命令”到“生成 clarification 结果并交给 `spec-plan`”的完整执行过程。
 
+相关文档：
+
+- `docs/subagent-dispatch-analysis.zh-CN.md`：对 `nicobailon/pi-subagents` 调度机制的参考分析，用于后续改进本项目 subAgent 调度。
+
 相关代码位置：
 
 - `extensions/clarification-orchestrator/index.ts`：扩展入口，注册命令。
