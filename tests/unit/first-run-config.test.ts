@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { ensureFirstRunConfig, parsePiListModels, renderModelChoices, writeFirstRunConfig } from "../../extensions/clarification-orchestrator/first-run-config.ts";
+import { deriveCurrentProcessPiCommand, ensureFirstRunConfig, listPiModels, parsePiListModels, renderModelChoices, resolvePiCommand, writeFirstRunConfig } from "../../extensions/clarification-orchestrator/first-run-config.ts";
 
 const observedOutput = `
 provider              model              context  max-out  thinking  images
@@ -90,6 +90,73 @@ test("ensureFirstRunConfig rejects non-interactive empty model list and invalid 
     /Invalid default model choice '99'/,
   );
   await assert.rejects(fs.access(configPath), /ENOENT/);
+});
+
+test("resolvePiCommand honors explicit env derived and fallback order", () => {
+  const original = process.env.PI_COMMAND;
+  try {
+    delete process.env.PI_COMMAND;
+    assert.equal(resolvePiCommand("/tmp/custom-pi"), "/tmp/custom-pi");
+    process.env.PI_COMMAND = "/tmp/env-pi";
+    assert.equal(resolvePiCommand(), "/tmp/env-pi");
+    delete process.env.PI_COMMAND;
+    assert.equal(deriveCurrentProcessPiCommand(["node", "/usr/local/bin/pi"], "/usr/bin/node"), "/usr/local/bin/pi");
+    assert.equal(deriveCurrentProcessPiCommand(["node", "pi --bad"], "/usr/bin/node"), undefined);
+    assert.equal(resolvePiCommand(), "pi");
+  } finally {
+    if (original === undefined) delete process.env.PI_COMMAND;
+    else process.env.PI_COMMAND = original;
+  }
+});
+
+async function writeExecutable(name: string, body: string): Promise<string> {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), "bp-pi-command-"));
+  const file = path.join(dir, name);
+  await fs.writeFile(file, body, "utf8");
+  await fs.chmod(file, 0o755);
+  return file;
+}
+
+test("listPiModels uses explicit piCommand and returns stdout unchanged", async () => {
+  const executable = await writeExecutable("pi", `#!/usr/bin/env node\nconsole.log(${JSON.stringify(observedOutput)});\n`);
+  assert.equal(await listPiModels(executable), `${observedOutput}\n`);
+});
+
+test("listPiModels uses PI_COMMAND when explicit command is omitted", async () => {
+  const original = process.env.PI_COMMAND;
+  const executable = await writeExecutable("pi", `#!/usr/bin/env node\nconsole.log('provider         model              context');\nconsole.log(' Env             model              1K');\n`);
+  try {
+    process.env.PI_COMMAND = executable;
+    assert.match(await listPiModels(), /Env\s+model/);
+  } finally {
+    if (original === undefined) delete process.env.PI_COMMAND;
+    else process.env.PI_COMMAND = original;
+  }
+});
+
+test("listPiModels reports missing pi command with friendly setup guidance", async () => {
+  await assert.rejects(
+    listPiModels("/definitely/missing/pi"),
+    (error: any) => {
+      assert.match(error.message, /Brainstorming Pro first-run setup could not find the pi executable/);
+      assert.match(error.message, /which pi/);
+      assert.match(error.message, /PI_COMMAND/);
+      return true;
+    },
+  );
+});
+
+test("listPiModels preserves non-ENOENT spawn diagnostics", async () => {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), "bp-pi-dir-"));
+  await assert.rejects(
+    listPiModels(dir),
+    (error: any) => {
+      assert.match(error.message, /could not start/);
+      assert.match(error.message, new RegExp(dir.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
+      assert.doesNotMatch(error.message, /not found on its PATH/);
+      return true;
+    },
+  );
 });
 
 test("writeFirstRunConfig writes expected json shape", async () => {

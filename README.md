@@ -18,15 +18,22 @@ Brainstorming Pro uses explicit user gates between lifecycle stages:
 
 ## Commands
 
+Public commands:
+
 - `/clarify <request>` — start a request-first clarification workflow. The system proposes safe topic candidates and asks you to confirm before creating artifacts.
 - `/clarify --resume` — resume a pending clarification run. If multiple resumable runs exist, choose one interactively.
-- `/clarify <request> --verbose` — preserve the request and emit phase/activity logging.
-- `/clarify <request> --dry-run` — validate input and write planned debug artifacts without launching subagents or bypassing gates.
 - `/clarify-status <topic>` — show run metadata, resume status, latest version, artifacts, pending decisions, errors, and resume hint.
-- `/clarify-diff <topic> [run1 run2]` — compare design, issue, and decision artifacts across runs.
-- `/clarify-clean <topic> [--dry-run] [--keep N]` — delete old runs while protecting the current/newest runs.
 - `/spec-plan <topic>` — lifecycle boundary command for planning from an approved design.
 - `/spec-exec <topic>` — lifecycle boundary command for execution from approved `requirements.md` and `tasks.md`.
+
+Advanced and troubleshooting options:
+
+- `/clarify <request> --verbose` — preserve the request and emit phase/activity logging.
+- `/clarify <request> --dry-run` — validate input and write planned debug artifacts without launching subagents or bypassing gates.
+
+`/clarify-diff` and `/clarify-clean` are no longer public commands; their maintenance handler files remain internal and are not registered as slash commands.
+
+The markdown files under `prompts/*.md` are internal package resources loaded by the Brainstorming Pro orchestrator. They are not user slash commands and are not published through the pi prompt registry.
 
 Public `/clarify` options are only `--resume`, `--verbose`, and `--dry-run`. Removed options such as `--mode`, `--threshold`, `--max-rounds`, and `--reviewers` are rejected for `/clarify`; reviewer defaults belong in package/user/project configuration.
 
@@ -65,6 +72,8 @@ Example:
 Subagent models must use pi's provider-qualified `provider/model-id` form, such as `anthropic/claude-sonnet-4` or `openai/gpt-4o-mini`. Bare model names such as `sonnet` or `gpt-4o` are rejected because pi could resolve them through an unintended default provider. Brainstorming Pro stores model strings only; it does not support a separate `provider` field, and pi remains the authority for provider/model discovery.
 
 On the first interactive `/clarify` run, if no Brainstorming Pro config file is loaded from the user or project config paths above, Brainstorming Pro runs `pi --list-models`, displays the discovered provider/model choices, asks for one default model and optional fallback models, then writes `~/.pi/agent/brainstorming-pro/config.json`. Non-interactive first use stops with setup guidance; run `/clarify` interactively once or create the config file manually using provider-qualified model IDs from `pi --list-models`.
+
+If first-run model discovery cannot find `pi`, run `which pi` in a shell where `pi --list-models` works, set `PI_COMMAND` to that absolute executable path, then restart pi from that environment. `PI_COMMAND` must be a single executable path, not a shell command with arguments. You can also restart pi from an environment whose `PATH` already includes the pi executable, or manually create `~/.pi/agent/brainstorming-pro/config.json` with provider-qualified model IDs such as `anthropic/claude-sonnet-4`.
 
 Project-local agents and security-sensitive project config require confirmation. In non-interactive contexts they are rejected unless explicitly trusted by user-level config.
 

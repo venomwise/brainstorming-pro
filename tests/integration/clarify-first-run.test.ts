@@ -79,7 +79,7 @@ test("/clarify first-run setup writes config and continues with reloaded config"
   });
 });
 
-test("/clarify skips first-run setup when project config exists", async () => {
+test("/clarify skips first-run setup when project config exists despite missing PI_COMMAND", async () => {
   await withTempProcessEnv(async ({ cwd, home }) => {
     await fs.mkdir(path.join(cwd, ".pi", "brainstorming-pro"), { recursive: true });
     await fs.writeFile(path.join(cwd, ".pi", "brainstorming-pro", "config.json"), JSON.stringify({ version: 1, models: { default: "openai/gpt-4o", fallback: [] } }, null, 2));
@@ -93,6 +93,18 @@ test("/clarify skips first-run setup when project config exists", async () => {
     await assert.rejects(fs.access(userConfigPath), /ENOENT/);
     assert.equal(notifications.some((entry) => /Brainstorming Pro first-run setup/.test(entry.message)), false);
     assert.equal(notifications.some((entry) => /Clarification workflow reached phase DESIGN_REVIEW_GATE/.test(entry.message)), true);
+  });
+});
+
+test("/clarify interactive no-config reports friendly missing pi discovery guidance", async () => {
+  await withTempProcessEnv(async ({ cwd }) => {
+    process.env.PI_COMMAND = path.join(cwd, "missing-pi-command");
+    const notifications: Array<{ message: string; type?: string }> = [];
+    await handleClarifyCommand("Needs setup", createCtx([], notifications));
+    assert.equal(notifications.at(-1)?.type, "error");
+    assert.match(notifications.at(-1)?.message ?? "", /Brainstorming Pro first-run setup could not find the pi executable/);
+    assert.match(notifications.at(-1)?.message ?? "", /which pi/);
+    assert.match(notifications.at(-1)?.message ?? "", /PI_COMMAND/);
   });
 });
 

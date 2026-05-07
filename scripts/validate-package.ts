@@ -34,7 +34,6 @@ for (const file of required) {
 const pkg = JSON.parse(await fs.readFile(path.join(root, "package.json"), "utf8"));
 if (!pkg.pi?.extensions?.length) throw new Error("package.json missing pi.extensions");
 if (!pkg.pi?.skills?.length) throw new Error("package.json missing pi.skills");
-if (!pkg.pi?.prompts?.length) throw new Error("package.json missing pi.prompts");
 
 for (const [file, version] of [
   ["prompts/brainstorming-methodology.md", "brainstorming-pro-v1"],

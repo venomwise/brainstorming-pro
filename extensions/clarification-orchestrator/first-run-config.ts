@@ -99,9 +99,24 @@ export async function writeFirstRunConfig(configPath: string, defaultModel: stri
   await fs.writeFile(configPath, `${JSON.stringify(config, null, 2)}\n`, "utf8");
 }
 
+export function resolvePiCommand(piCommand?: string): string {
+  return piCommand ?? process.env.PI_COMMAND ?? deriveCurrentProcessPiCommand() ?? "pi";
+}
+
+export function deriveCurrentProcessPiCommand(argv: string[] = process.argv, execPath: string = process.execPath): string | undefined {
+  const candidates = [argv[1], execPath];
+  for (const candidate of candidates) {
+    if (!candidate || !path.isAbsolute(candidate)) continue;
+    const base = path.basename(candidate).toLowerCase();
+    if (base === "pi" || base === "pi.js" || base === "pi.cjs" || base === "pi.mjs") return candidate;
+  }
+  return undefined;
+}
+
 export async function listPiModels(piCommand?: string): Promise<string> {
   return new Promise((resolve, reject) => {
-    const child = spawn(piCommand ?? process.env.PI_COMMAND ?? "pi", ["--list-models"], { env: process.env });
+    const resolvedCommand = resolvePiCommand(piCommand);
+    const child = spawn(resolvedCommand, ["--list-models"], { env: process.env });
     let stdout = "";
     let stderr = "";
     child.stdout.on("data", (chunk) => {
@@ -111,7 +126,12 @@ export async function listPiModels(piCommand?: string): Promise<string> {
       stderr += chunk.toString("utf8");
     });
     child.on("error", (error) => {
-      reject(new Error(`pi --list-models failed to start: ${error.message}`));
+      const code = (error as NodeJS.ErrnoException).code;
+      if (code === "ENOENT") {
+        reject(new Error(formatMissingPiCommandMessage(resolvedCommand)));
+        return;
+      }
+      reject(new Error(`Brainstorming Pro could not start '${resolvedCommand}' for pi model discovery: ${error.message}`));
     });
     child.on("close", (code) => {
       if (code === 0) resolve(stdout);
@@ -121,6 +141,15 @@ export async function listPiModels(piCommand?: string): Promise<string> {
       }
     });
   });
+}
+
+export function formatMissingPiCommandMessage(command: string): string {
+  return [
+    "Brainstorming Pro first-run setup could not find the pi executable for model discovery.",
+    `The extension process tried to run '${command} --list-models', but '${command}' was not found on its PATH. This can happen even when 'pi --list-models' works in your interactive shell because the extension process may inherit a different PATH.`,
+    "Run 'which pi' in a shell where 'pi --list-models' works, set PI_COMMAND to that absolute executable path (not a shell command with arguments), then restart pi.",
+    "Alternatively, restart pi from an environment whose PATH includes the pi executable, or manually create ~/.pi/agent/brainstorming-pro/config.json with provider-qualified model IDs such as 'provider/model'.",
+  ].join("\n");
 }
 
 function findNextColumnStart(header: string, after: number): number {
