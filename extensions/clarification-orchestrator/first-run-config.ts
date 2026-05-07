@@ -41,12 +41,12 @@ export async function ensureFirstRunConfig(options: FirstRunConfigOptions): Prom
   }
 
   const choices = renderModelChoices(models);
-  options.ui.notify(["Brainstorming Pro first-run setup", "", "Choose models discovered from `pi --list-models`:", "", choices].join("\n"), "info");
+  options.ui.notify(["Brainstorming Pro first-run setup", "", "Choose models discovered from `pi --list-models` by entering the number shown in the list, not the model name:", "", choices].join("\n"), "info");
 
-  const defaultAnswer = (await options.ui.input("Choose default Brainstorming Pro model", "1"))?.trim();
+  const defaultAnswer = (await options.ui.input("Choose default Brainstorming Pro model by number", "1"))?.trim();
   const defaultModel = selectOneModel(models, defaultAnswer || "1", "default model");
 
-  const fallbackAnswer = (await options.ui.input("Choose fallback models (optional)", "comma-separated numbers, blank for none"))?.trim();
+  const fallbackAnswer = (await options.ui.input("Choose fallback models by comma-separated numbers (optional; blank for none)", "1,3 or blank"))?.trim();
   const fallback = fallbackAnswer ? selectManyModels(models, fallbackAnswer, defaultModel) : [];
 
   const configPath = options.configPath ?? defaultUserConfigPath();
@@ -186,7 +186,7 @@ function findNextColumnStart(header: string, after: number): number {
 }
 
 function selectOneModel(models: ListedPiModel[], answer: string, label: string): string {
-  if (!/^\d+$/u.test(answer)) throw new Error(`Invalid ${label} choice '${answer}'. Enter a model number.`);
+  if (!/^\d+$/u.test(answer)) throw new Error(`Invalid ${label} choice '${answer}'. Enter the number from the list, for example '1', not the model name.`);
   const model = models[Number(answer) - 1];
   if (!model) throw new Error(`Invalid ${label} choice '${answer}'.`);
   return model.id;

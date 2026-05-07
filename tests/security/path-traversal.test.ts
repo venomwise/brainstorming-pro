@@ -7,6 +7,7 @@ import { createRun, writeMarkdownArtifact, assertArtifactPathAllowed } from "../
 import { parseClarifyArgs } from "../../extensions/clarification-orchestrator/options.ts";
 import { resolveSpecPaths } from "../../extensions/clarification-orchestrator/path-guard.ts";
 import { assertDeletionAllowed } from "../../extensions/clarification-orchestrator/retention.ts";
+import { validateClarificationTopicSlug } from "../../extensions/clarification-orchestrator/topic-validation.ts";
 
 test("unsafe topics and artifact paths are rejected", async () => {
   const cwd = await fs.mkdtemp(path.join(os.tmpdir(), "bp-sec-path-"));
@@ -19,6 +20,12 @@ test("unsafe topics and artifact paths are rejected", async () => {
   const run = await createRun(topic, parseClarifyArgs("Safe Topic"), cwd);
   await assert.rejects(() => writeMarkdownArtifact(run.paths, "../../evil.md", "bad"));
   assert.throws(() => assertArtifactPathAllowed(run.paths, path.join(cwd, "evil.md")));
+});
+
+test("strict clarification topics reject traversal and path-like values", () => {
+  for (const topic of ["../x", "/tmp/x", "foo/bar", ".hidden", "foo\\bar"]) {
+    assert.throws(() => validateClarificationTopicSlug(topic));
+  }
 });
 
 test("deletion is limited to run directories", async () => {

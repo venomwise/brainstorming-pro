@@ -5,7 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import { parseClarifyArgs } from "../../extensions/clarification-orchestrator/options.ts";
 import { resolveSpecPaths } from "../../extensions/clarification-orchestrator/path-guard.ts";
-import { createRun } from "../../extensions/clarification-orchestrator/artifact-store.ts";
+import { createRun, saveState } from "../../extensions/clarification-orchestrator/artifact-store.ts";
 import { bundledDefaults } from "../../extensions/clarification-orchestrator/config.ts";
 import { runDiscoveryPhase } from "../../extensions/clarification-orchestrator/phases/discovery.ts";
 import { runReviewPhase } from "../../extensions/clarification-orchestrator/phases/review.ts";
@@ -13,7 +13,7 @@ import { runTriagePhase } from "../../extensions/clarification-orchestrator/phas
 import { runRefinePhase } from "../../extensions/clarification-orchestrator/phases/refine.ts";
 import { runVerifyPhase } from "../../extensions/clarification-orchestrator/phases/verify.ts";
 import { runFinalApprovalPhase } from "../../extensions/clarification-orchestrator/phases/final-approval.ts";
-import { evaluateVerificationLoop } from "../../extensions/clarification-orchestrator/workflow.ts";
+import { evaluateVerificationLoop, runWorkflow } from "../../extensions/clarification-orchestrator/workflow.ts";
 import type { AgentDefinition, DesignIssue, UserDecision } from "../../extensions/clarification-orchestrator/types.ts";
 
 const agent = (name: string, role: AgentDefinition["role"]): AgentDefinition => ({
@@ -160,6 +160,65 @@ test("mocked workflow phases produce canonical artifacts and final handoff", asy
   const final = await fs.readFile(path.join(env.paths.runDir, "final-approval.md"), "utf8");
   assert.match(final, /spec-plan/);
   assert.match(final, /does not auto-invoke/);
+});
+
+test("workflow orchestration runs mocked designer before design gate", async () => {
+  const env = await setup();
+  const state = await runWorkflow({
+    paths: env.paths,
+    options: env.options,
+    config: bundledDefaults,
+    ctx: { hasUI: true, cwd: env.cwd, ask: async () => "save" },
+    runDiscovery: async (params) => runDiscoveryPhase({
+      ...params,
+      runDesigner: async () => ({
+        agentName: "designer",
+        role: "designer",
+        status: "success",
+        attempt: 1,
+        startedAt: new Date().toISOString(),
+        endedAt: new Date().toISOString(),
+        durationMs: 1,
+        parsedOutput: { discoveryMarkdown: "# Discovery", designMarkdown: "# Design\n\nReady" },
+      }),
+    }),
+  });
+  assert.equal(state.phase, "DESIGN_REVIEW_GATE");
+  assert.equal(state.completedArtifacts.includes(env.paths.designPath), true);
+  await fs.access(env.paths.designPath);
+  await fs.access(path.join(env.paths.runDir, "versions", "v0", "design.md"));
+});
+
+test("workflow orchestration aborts when design gate artifact is missing", async () => {
+  const env = await setup();
+  const state = await runDiscoveryPhase({
+    paths: env.paths,
+    state: env.state,
+    config: bundledDefaults,
+    designer: agent("designer", "designer"),
+    cwd: env.cwd,
+    runDesigner: async () => ({
+      agentName: "designer",
+      role: "designer",
+      status: "success",
+      attempt: 1,
+      startedAt: new Date().toISOString(),
+      endedAt: new Date().toISOString(),
+      durationMs: 1,
+      parsedOutput: { discoveryMarkdown: "# Discovery", designMarkdown: "# Design" },
+    }),
+  });
+  await fs.rm(env.paths.designPath);
+  await saveState(env.paths, { ...state, phase: "V0_BRAINSTORMING" });
+  const aborted = await runWorkflow({
+    paths: env.paths,
+    options: env.options,
+    config: bundledDefaults,
+    ctx: { hasUI: true, cwd: env.cwd },
+    runDiscovery: async () => state,
+  });
+  assert.equal(aborted.phase, "ABORTED");
+  assert.match(aborted.errors.at(-1)?.message ?? "", /missing/);
 });
 
 test("verification loop requests targeted refinement until maxRounds", async () => {

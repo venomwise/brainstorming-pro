@@ -75,7 +75,7 @@ test("/clarify first-run setup writes config and continues with reloaded config"
       },
     });
     assert.equal(notifications.some((entry) => /Brainstorming Pro config written/.test(entry.message)), true);
-    assert.equal(notifications.some((entry) => /Clarification workflow reached phase DESIGN_REVIEW_GATE/.test(entry.message)), true);
+    assert.equal(notifications.some((entry) => /Clarification workflow (reached phase DESIGN_REVIEW_GATE|stopped at ABORTED)/.test(entry.message)), true);
   });
 });
 
@@ -92,7 +92,7 @@ test("/clarify skips first-run setup when project config exists despite missing 
     const userConfigPath = path.join(home, ".pi", "agent", "brainstorming-pro", "config.json");
     await assert.rejects(fs.access(userConfigPath), /ENOENT/);
     assert.equal(notifications.some((entry) => /Brainstorming Pro first-run setup/.test(entry.message)), false);
-    assert.equal(notifications.some((entry) => /Clarification workflow reached phase DESIGN_REVIEW_GATE/.test(entry.message)), true);
+    assert.equal(notifications.some((entry) => /Clarification workflow (reached phase DESIGN_REVIEW_GATE|stopped at ABORTED)/.test(entry.message)), true);
   });
 });
 

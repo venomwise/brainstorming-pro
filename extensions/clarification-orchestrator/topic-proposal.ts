@@ -2,33 +2,11 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import type { TopicCandidate } from "./types.ts";
 import { normalizeTopic, validateTopicSafety } from "./path-guard.ts";
+import { isClarificationTopicSlug } from "./topic-validation.ts";
 
 const genericWords = new Set([
   "a", "an", "and", "app", "build", "create", "design", "do", "feature", "fix", "for", "help", "implement", "improve", "make", "new", "request", "system", "the", "to", "update", "use", "user", "workflow",
 ]);
-
-const chineseGloss: Record<string, string> = {
-  登录: "login",
-  登陆: "login",
-  注册: "signup",
-  用户: "user",
-  权限: "permission",
-  支付: "payment",
-  订单: "order",
-  搜索: "search",
-  推荐: "recommendation",
-  消息: "message",
-  通知: "notification",
-  审批: "approval",
-  流程: "flow",
-  工作流: "workflow",
-  设计: "design",
-  澄清: "clarification",
-  需求: "requirements",
-  改进: "improve",
-  优化: "optimize",
-  管理: "management",
-};
 
 export function generateTopicCandidates(request: string, existingTopics: string[] = []): TopicCandidate[] {
   const trimmed = request.replace(/\s+/g, " ").trim();
@@ -36,18 +14,13 @@ export function generateTopicCandidates(request: string, existingTopics: string[
 
   const candidates = new Map<string, TopicCandidate>();
   const language = detectLanguage(trimmed);
-  const phrases = language === "zh" ? chineseCandidatePhrases(trimmed) : englishCandidatePhrases(trimmed);
+  const phrases = language === "en" ? englishCandidatePhrases(trimmed) : [];
 
   for (const phrase of phrases) {
     const candidate = toCandidate(phrase, trimmed, language, existingTopics);
     if (!candidate) continue;
     candidates.set(candidate.slug, candidate);
     if (candidates.size >= 3) break;
-  }
-
-  if (candidates.size === 0) {
-    const fallback = toCandidate(trimmed, trimmed, language, existingTopics);
-    if (fallback) candidates.set(fallback.slug, fallback);
   }
 
   return [...candidates.values()];
@@ -62,7 +35,7 @@ export type TopicChoice = {
 };
 
 export function renderTopicChoices(candidates: TopicCandidate[]): string {
-  if (candidates.length === 0) return "No safe topic candidates were generated. Please enter a topic manually.";
+  if (candidates.length === 0) return "No safe topic candidates were generated. Please enter an English kebab-case topic manually, for example 'task-dispatch-status'.";
   return candidates.map((candidate, index) => {
     const details = [
       `source: ${candidate.sourcePhrase}`,
@@ -118,10 +91,9 @@ function toCandidate(phrase: string, request: string, language: string, existing
   let slug = "";
   let unsafe = false;
 
-  const phraseForSlug = language === "zh" ? translateChinesePhrase(sourcePhrase) : sourcePhrase;
   try {
     validateTopicSafety(sourcePhrase);
-    slug = normalizeTopic(phraseForSlug).slug;
+    slug = normalizeTopic(sourcePhrase).slug;
   } catch (error) {
     unsafe = true;
     warnings.push(error instanceof Error ? error.message : String(error));
@@ -129,6 +101,8 @@ function toCandidate(phrase: string, request: string, language: string, existing
   }
 
   if (!slug) return undefined;
+  if (!isClarificationTopicSlug(slug)) return undefined;
+
   const exactConflict = existingTopics.includes(slug);
   const similarTopics = findSimilarExistingTopics(slug, existingTopics).filter((topic) => topic !== slug);
   const weak = isWeakSlug(slug);
@@ -142,7 +116,6 @@ function toCandidate(phrase: string, request: string, language: string, existing
     displayName: sourcePhrase,
     sourcePhrase,
     language,
-    gloss: language === "zh" ? phraseForSlug : undefined,
     strength,
     warnings,
     exactConflict,
@@ -150,7 +123,7 @@ function toCandidate(phrase: string, request: string, language: string, existing
   };
 }
 
-function detectLanguage(text: string): "zh" | "en" | "mixed" {
+export function detectLanguage(text: string): "zh" | "en" | "mixed" {
   if (/\p{Script=Han}/u.test(text)) return "zh";
   if (/^[\p{Script=Latin}\p{N}\p{P}\p{Zs}]+$/u.test(text)) return "en";
   return "mixed";
@@ -166,24 +139,6 @@ function englishCandidatePhrases(text: string): string[] {
     compact.slice(-3).join(" "),
     words.slice(0, 5).join(" "),
   ]);
-}
-
-function chineseCandidatePhrases(text: string): string[] {
-  const matches = Object.keys(chineseGloss).filter((term) => text.includes(term));
-  const translated = matches.map((term) => chineseGloss[term]);
-  const hanChunks = text.match(/[\p{Script=Han}]{2,}/gu) ?? [];
-  return unique([
-    translated.slice(0, 4).join(" "),
-    translated.slice(0, 3).join(" "),
-    ...hanChunks.slice(0, 2),
-  ].filter(Boolean));
-}
-
-function translateChinesePhrase(text: string): string {
-  if (/^[\p{Script=Latin}\p{N}\p{P}\p{Zs}]+$/u.test(text)) return text;
-  const terms = Object.keys(chineseGloss).filter((term) => text.includes(term)).map((term) => chineseGloss[term]);
-  if (terms.length) return terms.join(" ");
-  return `topic-${Array.from(text).map((char) => char.codePointAt(0)?.toString(36) ?? "").join("-")}`;
 }
 
 function isWeakSlug(slug: string): boolean {

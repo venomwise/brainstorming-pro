@@ -11,7 +11,9 @@ import { loadConfig, requiresUserConfirmation } from "../config.ts";
 import { ensureFirstRunConfig } from "../first-run-config.ts";
 import { buildAgentTaskPrompt } from "../prompts.ts";
 import { hashPrompt, writeDebugInput } from "../debug-artifacts.ts";
-import { generateTopicCandidates, listExistingSpecTopics } from "../topic-proposal.ts";
+import { detectLanguage, generateTopicCandidates, listExistingSpecTopics } from "../topic-proposal.ts";
+import { proposeTopicsWithModel } from "../topic-proposal-agent.ts";
+import { validateClarificationTopicSlug } from "../topic-validation.ts";
 import { confirmTopicCandidate } from "../user-gate.ts";
 
 export async function handleClarifyCommand(args: string, ctx: ExtensionCommandContext) {
@@ -52,10 +54,14 @@ export async function handleClarifyCommand(args: string, ctx: ExtensionCommandCo
     }
 
     const existingTopics = await listExistingSpecTopics(cwd);
-    const candidates = generateTopicCandidates(options.request, existingTopics);
+    const candidates = await proposeStartupTopicCandidates({ request: options.request, existingTopics, cwd, config: loadedStartupConfig.config, notify: ctx.ui.notify.bind(ctx.ui) });
+    if (options.dryRun && candidates.length === 0) {
+      ctx.ui.notify("Dry run: manual English kebab-case topic input would be required before creating artifacts.", "info");
+    }
     const confirmedTopic = options.dryRun
-      ? candidates.find((candidate) => candidate.strength === "strong")?.slug ?? candidates[0]?.slug ?? options.request
+      ? candidates.find((candidate) => candidate.strength === "strong")?.slug ?? candidates[0]?.slug ?? "manual-topic-required"
       : await confirmTopicCandidate({ request: options.request, candidates, ctx: { hasUI, input, notify: ctx.ui.notify.bind(ctx.ui) } });
+    validateClarificationTopicSlug(confirmedTopic);
     options.proposedTopic = candidates[0]?.slug;
     options.confirmedTopic = confirmedTopic;
     const topic = resolveSpecPaths(cwd, confirmedTopic);
@@ -81,13 +87,40 @@ export async function handleClarifyCommand(args: string, ctx: ExtensionCommandCo
     const logger = createExecutionLogger(run.paths);
     progress.setActivity(`Starting clarification for ${topic.displayName}`);
     await logger.log({ type: "workflow-start", message: `Starting ${topic.displayName}`, phase: "INIT" });
-    const state = await runWorkflow({ paths: run.paths, options, config: loadedStartupConfig.config, ctx: { hasUI, cwd }, onPhase: async (phase) => {
+    const ask = input ? async (prompt: string) => await input(prompt, "approve / review / revise / save") ?? "" : undefined;
+    const state = await runWorkflow({ paths: run.paths, options, config: loadedStartupConfig.config, ctx: { hasUI, cwd, ask }, onPhase: async (phase) => {
       progress.setPhaseProgress(phase);
       await logger.log({ type: "phase", phase, message: `Entered ${phase}` });
     } });
-    ctx.ui.notify(`Clarification workflow reached phase ${state.phase}`, "info");
+    if (state.phase === "ABORTED" || state.metadata.resumeStatus === "recoverable-failure" || state.execution.status === "failed") {
+      ctx.ui.notify(`Clarification workflow stopped at ${state.phase}. Fix the reported issue and resume with /clarify ${topic.displayName} --resume.`, "warning");
+    } else if (state.phase === "COMPLETE") {
+      ctx.ui.notify(`Clarification complete. Run /spec-plan ${topic.displayName}`, "info");
+    } else {
+      ctx.ui.notify(`Clarification workflow reached phase ${state.phase}`, "info");
+    }
   } catch (error) {
     ctx.ui.notify(error instanceof Error ? error.message : String(error), "error");
+  }
+}
+
+async function proposeStartupTopicCandidates(params: {
+  request: string;
+  existingTopics: string[];
+  cwd: string;
+  config: Parameters<typeof proposeTopicsWithModel>[0]["config"];
+  notify: (message: string, type?: "info" | "warning" | "error") => void;
+}) {
+  const language = detectLanguage(params.request);
+  if (language === "en") return generateTopicCandidates(params.request, params.existingTopics);
+  try {
+    const candidates = await proposeTopicsWithModel({ request: params.request, existingTopics: params.existingTopics, cwd: params.cwd, packageRoot: path.resolve(params.cwd), config: params.config });
+    if (candidates.length > 0) return candidates;
+    params.notify("No safe English kebab-case topic candidates were generated. Manual topic input is required.", "warning");
+    return [];
+  } catch (error) {
+    params.notify(`Topic proposal failed; manual English kebab-case topic input is required. ${error instanceof Error ? error.message : String(error)}`, "warning");
+    return [];
   }
 }
 

@@ -3,11 +3,13 @@ import assert from "node:assert/strict";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { createRun, loadState, writeVersionedDesign } from "../../extensions/clarification-orchestrator/artifact-store.ts";
+import { createRun, loadState, saveState, writeVersionedDesign } from "../../extensions/clarification-orchestrator/artifact-store.ts";
 import { parseClarifyArgs } from "../../extensions/clarification-orchestrator/options.ts";
 import { resolveSpecPaths } from "../../extensions/clarification-orchestrator/path-guard.ts";
 import { applyAutoMode, applyHybridMode, applyManualMode, parseDesignGateAction, presentDecisionGate, presentDesignReviewGate, resolveNeedsDiscussion } from "../../extensions/clarification-orchestrator/user-gate.ts";
 import { runConversationalRevisionPhase } from "../../extensions/clarification-orchestrator/phases/conversational-revision.ts";
+import { resumeWorkflow, runWorkflow } from "../../extensions/clarification-orchestrator/workflow.ts";
+import { bundledDefaults } from "../../extensions/clarification-orchestrator/config.ts";
 import type { DesignIssue } from "../../extensions/clarification-orchestrator/types.ts";
 
 const baseIssue = (id: string, severity: DesignIssue["severity"] = "P1"): DesignIssue => ({
@@ -107,6 +109,41 @@ test("presentDesignReviewGate persists save decision", async () => {
   assert.equal(decision.action, "save");
   const artifact = await fs.readFile(path.join(run.paths.runDir, "versions", "v0", "design-gate.json"), "utf8");
   assert.match(artifact, /save/);
+});
+
+test("workflow design gate save approve review and revise route lifecycle state", async () => {
+  const saveRun = await setup();
+  await writeVersionedDesign(saveRun.paths, 0, "# Design");
+  let state = await loadState(saveRun.paths);
+  state.phase = "DESIGN_REVIEW_GATE";
+  state.metadata.latestVersion = 0;
+  state.designVersions = [{ version: 0, designPath: path.join(saveRun.paths.runDir, "versions", "v0", "design.md"), changeSummary: "initial", methodologyVersions: state.metadata.methodologyVersions, createdAt: new Date().toISOString() }];
+  await saveState(saveRun.paths, state);
+  let routed = await resumeWorkflow({ paths: saveRun.paths, options: saveRun.state.options, config: bundledDefaults, ctx: { hasUI: true, cwd: path.dirname(saveRun.paths.specDir), ask: async () => "save" } });
+  assert.equal(routed.metadata.resumeStatus, "awaiting-design-gate-decision");
+
+  routed = await resumeWorkflow({ paths: saveRun.paths, options: saveRun.state.options, config: bundledDefaults, ctx: { hasUI: true, cwd: path.dirname(saveRun.paths.specDir), ask: async () => "approve" } });
+  assert.equal(routed.phase, "COMPLETE");
+  assert.match(await fs.readFile(path.join(saveRun.paths.runDir, "final-approval.md"), "utf8"), /\/spec-plan gate-topic/);
+
+  const reviewRun = await setup();
+  await writeVersionedDesign(reviewRun.paths, 0, "# Design");
+  state = await loadState(reviewRun.paths);
+  state.metadata.latestVersion = 0;
+  state.designVersions = [{ version: 0, designPath: path.join(reviewRun.paths.runDir, "versions", "v0", "design.md"), methodologyVersions: state.metadata.methodologyVersions, createdAt: new Date().toISOString() }];
+  await saveState(reviewRun.paths, state);
+  routed = await runWorkflow({ paths: reviewRun.paths, options: reviewRun.state.options, config: bundledDefaults, ctx: { hasUI: true, cwd: path.dirname(reviewRun.paths.specDir), ask: async () => "review" }, runDiscovery: async () => loadState(reviewRun.paths) });
+  assert.equal(routed.phase, "REVIEW");
+  assert.equal(routed.metadata.resumeStatus, "in-cross-review");
+
+  const reviseRun = await setup();
+  await writeVersionedDesign(reviseRun.paths, 0, "# Design");
+  state = await loadState(reviseRun.paths);
+  state.metadata.latestVersion = 0;
+  state.designVersions = [{ version: 0, designPath: path.join(reviseRun.paths.runDir, "versions", "v0", "design.md"), methodologyVersions: state.metadata.methodologyVersions, createdAt: new Date().toISOString() }];
+  await saveState(reviseRun.paths, state);
+  routed = await resumeWorkflow({ paths: reviseRun.paths, options: reviseRun.state.options, config: bundledDefaults, ctx: { hasUI: true, cwd: path.dirname(reviseRun.paths.specDir), ask: async () => "revise" } });
+  assert.equal(routed.phase, "DESIGN_REVIEW_GATE");
 });
 
 test("conversational revision increments versions only when design changes", async () => {

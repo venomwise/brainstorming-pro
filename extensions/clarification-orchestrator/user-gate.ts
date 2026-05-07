@@ -2,7 +2,7 @@ import type { DesignGateAction, DesignGateDecision, DesignIssue, UserDecision, W
 import type { RunPaths } from "./artifact-store.ts";
 import { loadState, saveState, writeDesignGateDecision, writeJsonArtifact, writeMarkdownArtifact } from "./artifact-store.ts";
 import { buildTopicChoices, renderTopicChoices } from "./topic-proposal.ts";
-import { validateTopicSafety } from "./path-guard.ts";
+import { CLARIFICATION_TOPIC_FORMAT_MESSAGE, validateClarificationTopicSlug } from "./topic-validation.ts";
 
 export type DecisionGateContext = {
   hasUI: boolean;
@@ -80,16 +80,16 @@ export async function confirmTopicCandidate(params: {
 
   const choices = buildTopicChoices(params.candidates);
   const prompt = [
-    "Choose a topic for this clarification run.",
+    "Choose a topic for this clarification run. Candidates and manual entries must be English kebab-case (for example 'task-dispatch-status').",
     "",
     `Request: ${params.request}`,
     "",
     renderTopicChoices(params.candidates),
     "",
-    "Enter a candidate number, an existing/manual topic slug, or 'manual' to type a topic.",
+    "Enter a candidate number, an existing/manual English kebab-case topic slug, or 'manual' to type a topic.",
   ].join("\n");
   params.ctx.notify?.(prompt, "info");
-  const answer = (await params.ctx.input("Confirm clarification topic", "1, manual, or topic-slug"))?.trim();
+  const answer = (await params.ctx.input("Confirm clarification topic (English kebab-case)", "1, manual, or task-dispatch-status"))?.trim();
   if (!answer) throw new Error("Topic confirmation cancelled.");
 
   if (/^\d+$/.test(answer)) {
@@ -104,13 +104,24 @@ export async function confirmTopicCandidate(params: {
 }
 
 async function requestManualTopic(ctx: TopicGateContext, prefill?: string): Promise<string> {
-  const manual = (await ctx.input?.("Enter clarification topic", prefill ?? "kebab-case-topic"))?.trim();
-  if (!manual) throw new Error("Manual topic entry cancelled.");
-  return manual;
+  let placeholder = prefill ?? "task-dispatch-status";
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    const manual = (await ctx.input?.("Enter clarification topic (English kebab-case)", placeholder))?.trim();
+    if (!manual) throw new Error("Manual topic entry cancelled.");
+    try {
+      validateClarificationTopicSlug(manual);
+      return manual;
+    } catch (error) {
+      if (attempt >= 3) throw error;
+      ctx.notify?.(CLARIFICATION_TOPIC_FORMAT_MESSAGE, "error");
+      placeholder = "task-dispatch-status";
+    }
+  }
+  throw new Error("Manual topic entry cancelled.");
 }
 
 function validateConfirmedTopic(topic: string): string {
-  validateTopicSafety(topic);
+  validateClarificationTopicSlug(topic);
   return topic;
 }
 

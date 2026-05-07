@@ -69,6 +69,7 @@ test("ensureFirstRunConfig writes selected default and de-duplicated fallback", 
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), "bp-first-run-"));
   const configPath = path.join(dir, "config.json");
   const notifications: string[] = [];
+  const prompts: Array<{ title: string; placeholder?: string }> = [];
   const answers = ["2", "1,2,1,5"];
   const result = await ensureFirstRunConfig({
     hasUI: true,
@@ -76,13 +77,21 @@ test("ensureFirstRunConfig writes selected default and de-duplicated fallback", 
     listModels: async () => observedOutput,
     ui: {
       notify: (message) => notifications.push(message),
-      input: async () => answers.shift(),
+      input: async (title, placeholder) => {
+        prompts.push({ title, placeholder });
+        return answers.shift();
+      },
     },
   });
 
   assert.equal(result.defaultModel, "Msutools/gpt-4o-mini");
   assert.deepEqual(result.fallback, ["Hotaru-claude/claude-opus-4-7", "星辰-gpt-pro/gpt-5.5"]);
   assert.match(notifications.join("\n"), /Brainstorming Pro first-run setup/);
+  assert.match(notifications.join("\n"), /entering the number shown in the list, not the model name/);
+  assert.deepEqual(prompts, [
+    { title: "Choose default Brainstorming Pro model by number", placeholder: "1" },
+    { title: "Choose fallback models by comma-separated numbers (optional; blank for none)", placeholder: "1,3 or blank" },
+  ]);
   const written = JSON.parse(await fs.readFile(configPath, "utf8"));
   assert.deepEqual(written, {
     version: 1,
@@ -109,6 +118,12 @@ test("ensureFirstRunConfig rejects non-interactive empty model list and invalid 
   await assert.rejects(
     ensureFirstRunConfig({ hasUI: true, configPath, ui: { notify: () => {}, input: async () => "99" }, listModels: async () => observedOutput }),
     /Invalid default model choice '99'/,
+  );
+  await assert.rejects(fs.access(configPath), /ENOENT/);
+
+  await assert.rejects(
+    ensureFirstRunConfig({ hasUI: true, configPath, ui: { notify: () => {}, input: async () => "Msutools/gpt-4o-mini" }, listModels: async () => observedOutput }),
+    /Enter the number from the list, for example '1', not the model name/,
   );
   await assert.rejects(fs.access(configPath), /ENOENT/);
 });

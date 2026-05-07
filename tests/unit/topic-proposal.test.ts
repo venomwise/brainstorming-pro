@@ -10,11 +10,10 @@ test("generateTopicCandidates produces english candidates", () => {
   assert.equal(candidates[0].displayName.includes("onboarding"), true);
 });
 
-test("generateTopicCandidates produces chinese gloss metadata", () => {
+test("generateTopicCandidates does not produce codepoint fallback for Chinese requests", () => {
   const candidates = generateTopicCandidates("改进 登录 流程", []);
-  assert.ok(candidates.length >= 1);
-  assert.equal(candidates[0].language, "zh");
-  assert.ok(candidates[0].gloss?.includes("login") || candidates[0].gloss?.includes("flow"));
+  assert.equal(candidates.length, 0);
+  assert.equal(candidates.some((candidate) => /^topic-[a-z0-9-]+$/u.test(candidate.slug)), false);
 });
 
 test("generateTopicCandidates marks weak generic topics", () => {
@@ -36,8 +35,15 @@ test("buildTopicChoices surfaces reuse and manual options", () => {
 });
 
 test("renderTopicChoices includes candidate details", () => {
-  const candidates = generateTopicCandidates("改进 登录 流程", []);
+  const candidates = generateTopicCandidates("improve login flow", []);
   const rendered = renderTopicChoices(candidates);
   assert.match(rendered, /source:/);
-  assert.match(rendered, /gloss:/);
+  assert.doesNotMatch(rendered, /gloss:/);
+});
+
+test("empty proposal sets render manual-only English kebab-case fallback", () => {
+  const candidates = generateTopicCandidates("改进 登录 流程", []);
+  const choices = buildTopicChoices(candidates);
+  assert.deepEqual(choices, [{ action: "manual", label: "Enter a topic manually" }]);
+  assert.match(renderTopicChoices(candidates), /English kebab-case/);
 });
