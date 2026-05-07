@@ -8,7 +8,7 @@ import { handleDoctorCommand } from "./commands/doctor.ts";
 export default function clarificationOrchestrator(pi: ExtensionAPI) {
   pi.registerCommand("clarify", {
     description: "Run a structured multi-agent clarification workflow for a complex topic.",
-    handler: handleClarifyCommand,
+    handler: (args, ctx) => handleClarifyCommand(args, ctx, { sendMessage: pi.sendMessage.bind(pi) }),
   });
 
   pi.registerCommand("clarify-status", {

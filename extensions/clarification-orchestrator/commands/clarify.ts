@@ -16,7 +16,14 @@ import { proposeTopicsWithModel } from "../topic-proposal-agent.ts";
 import { validateClarificationTopicSlug } from "../topic-validation.ts";
 import { confirmTopicCandidate } from "../user-gate.ts";
 
-export async function handleClarifyCommand(args: string, ctx: ExtensionCommandContext) {
+type NotifyLevel = "info" | "warning" | "error";
+
+export type ClarifyCommandOutput = {
+  sendMessage?: (message: { customType: string; content: string; display: boolean; details?: Record<string, unknown> }, options?: { deliverAs?: "steer" | "followUp" | "nextTurn"; triggerTurn?: boolean }) => void;
+};
+
+export async function handleClarifyCommand(args: string, ctx: ExtensionCommandContext, output: ClarifyCommandOutput = {}) {
+  const notify = createCommandNotifier(ctx, output);
   try {
     const options = parseClarifyArgs(args);
     const cwd = process.cwd();
@@ -32,7 +39,7 @@ export async function handleClarifyCommand(args: string, ctx: ExtensionCommandCo
       }
       await ensureFirstRunConfig({
         hasUI,
-        ui: { notify: ctx.ui.notify.bind(ctx.ui), input },
+        ui: { notify, input },
       });
       loadedStartupConfig = await loadConfig(cwd, options);
     }
@@ -45,7 +52,7 @@ export async function handleClarifyCommand(args: string, ctx: ExtensionCommandCo
       const run = options.request ? await findCurrentRunForTopic(cwd, options.request) : await chooseResumableRun(cwd, ctx, hasUI);
       if (!run) throw new Error("No resumable clarification run found.");
       const state = await resumeWorkflow({ paths: run.paths, options, config: loadedStartupConfig.config, ctx: { hasUI, cwd } });
-      ctx.ui.notify(`Resumed ${run.metadata.topic.displayName}: phase ${state.phase}`, "info");
+      notify(`Resumed ${run.metadata.topic.displayName}: phase ${state.phase}`, "info");
       return;
     }
 
@@ -54,13 +61,14 @@ export async function handleClarifyCommand(args: string, ctx: ExtensionCommandCo
     }
 
     const existingTopics = await listExistingSpecTopics(cwd);
-    const candidates = await proposeStartupTopicCandidates({ request: options.request, existingTopics, cwd, config: loadedStartupConfig.config, notify: ctx.ui.notify.bind(ctx.ui) });
+    notify(`Starting /clarify for request: ${summarizeRequestForNotice(options.request)}`, "info");
+    const candidates = await proposeStartupTopicCandidates({ request: options.request, existingTopics, cwd, config: loadedStartupConfig.config, notify });
     if (options.dryRun && candidates.length === 0) {
-      ctx.ui.notify("Dry run: manual English kebab-case topic input would be required before creating artifacts.", "info");
+      notify("Dry run: manual English kebab-case topic input would be required before creating artifacts.", "info");
     }
     const confirmedTopic = options.dryRun
       ? candidates.find((candidate) => candidate.strength === "strong")?.slug ?? candidates[0]?.slug ?? "manual-topic-required"
-      : await confirmTopicCandidate({ request: options.request, candidates, ctx: { hasUI, input, notify: ctx.ui.notify.bind(ctx.ui) } });
+      : await confirmTopicCandidate({ request: options.request, candidates, ctx: { hasUI, input, notify } });
     validateClarificationTopicSlug(confirmedTopic);
     options.proposedTopic = candidates[0]?.slug;
     options.confirmedTopic = confirmedTopic;
@@ -79,11 +87,11 @@ export async function handleClarifyCommand(args: string, ctx: ExtensionCommandCo
         promptHash: hashPrompt(buildAgentTaskPrompt({ topic: topic.displayName, phase: "DRY_RUN", instructions: "Planned Brainstorming Pro execution." })),
       };
       await writeDebugInput(run.paths, loaded.config, "dry-run-plan", plan);
-      ctx.ui.notify(`Dry run: would execute clarification for ${topic.displayName} in ${path.relative(cwd, run.paths.runDir)}`, "info");
+      notify(`Dry run: would execute clarification for ${topic.displayName} in ${path.relative(cwd, run.paths.runDir)}`, "info");
       return;
     }
 
-    const progress = createProgressReporter({ notify: ctx.ui.notify.bind(ctx.ui) });
+    const progress = createProgressReporter({ notify });
     const logger = createExecutionLogger(run.paths);
     progress.setActivity(`Starting clarification for ${topic.displayName}`);
     await logger.log({ type: "workflow-start", message: `Starting ${topic.displayName}`, phase: "INIT" });
@@ -93,15 +101,32 @@ export async function handleClarifyCommand(args: string, ctx: ExtensionCommandCo
       await logger.log({ type: "phase", phase, message: `Entered ${phase}` });
     } });
     if (state.phase === "ABORTED" || state.metadata.resumeStatus === "recoverable-failure" || state.execution.status === "failed") {
-      ctx.ui.notify(`Clarification workflow stopped at ${state.phase}. Fix the reported issue and resume with /clarify ${topic.displayName} --resume.`, "warning");
+      notify(`Clarification workflow stopped at ${state.phase}. Fix the reported issue and resume with /clarify ${topic.displayName} --resume.`, "warning");
     } else if (state.phase === "COMPLETE") {
-      ctx.ui.notify(`Clarification complete. Run /spec-plan ${topic.displayName}`, "info");
+      notify(`Clarification complete. Run /spec-plan ${topic.displayName}`, "info");
     } else {
-      ctx.ui.notify(`Clarification workflow reached phase ${state.phase}`, "info");
+      notify(`Clarification workflow reached phase ${state.phase}`, "info");
     }
   } catch (error) {
-    ctx.ui.notify(error instanceof Error ? error.message : String(error), "error");
+    notify(error instanceof Error ? error.message : String(error), "error");
   }
+}
+
+function createCommandNotifier(ctx: ExtensionCommandContext, output: ClarifyCommandOutput): (message: string, type?: NotifyLevel) => void {
+  return (message, type = "info") => {
+    ctx.ui.notify(message, type);
+    output.sendMessage?.({
+      customType: "brainstorming-pro/clarify-notice",
+      content: message,
+      display: true,
+      details: { level: type },
+    }, { deliverAs: "nextTurn" });
+  };
+}
+
+function summarizeRequestForNotice(request: string): string {
+  const singleLine = request.replace(/\s+/gu, " ").trim();
+  return singleLine.length <= 120 ? singleLine : `${singleLine.slice(0, 117)}...`;
 }
 
 async function proposeStartupTopicCandidates(params: {
