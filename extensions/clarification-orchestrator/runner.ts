@@ -4,6 +4,7 @@ import type { AgentDefinition, AgentRunResult, AgentRunStatus, AgentUsage, Brain
 import type { RunPaths } from "./artifact-store.ts";
 import { writeJsonArtifact, writeMarkdownArtifact } from "./artifact-store.ts";
 import { buildRepairPrompt, formatValidationError, parseJsonOutput, validateOrThrow, type SchemaLike } from "./validation.ts";
+import { resolvePiInvocationSync } from "./pi-command.ts";
 
 export type RunSubagentParams<T = unknown> = {
   agent: AgentDefinition;
@@ -307,9 +308,11 @@ export function buildPiProcessArgs(params: {
   }
   args.push(params.prompt);
 
+  const invocation = resolvePiInvocationSync({ piCommand: params.piCommand });
+
   return {
-    command: params.piCommand ?? process.env.PI_COMMAND ?? "pi",
-    args,
+    command: invocation.command,
+    args: [...invocation.argsPrefix, ...args],
     env: {
       ...process.env,
       ...params.env,

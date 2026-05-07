@@ -12,7 +12,7 @@ test("clarification orchestrator registers only focused public commands", () => 
 
   clarificationOrchestrator(pi);
 
-  assert.deepEqual(registered, ["clarify", "clarify-status", "spec-plan", "spec-exec"]);
+  assert.deepEqual(registered, ["clarify", "clarify-status", "spec-plan", "spec-exec", "clarify-doctor"]);
   assert.equal(registered.includes("clarify-diff"), false);
   assert.equal(registered.includes("clarify-clean"), false);
 });

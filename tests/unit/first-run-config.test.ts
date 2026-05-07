@@ -4,6 +4,7 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { deriveCurrentProcessPiCommand, ensureFirstRunConfig, listPiModels, parsePiListModels, renderModelChoices, resolvePiCommand, writeFirstRunConfig } from "../../extensions/clarification-orchestrator/first-run-config.ts";
+import { resolvePiInvocationSync } from "../../extensions/clarification-orchestrator/pi-command.ts";
 
 const observedOutput = `
 provider              model              context  max-out  thinking  images
@@ -12,6 +13,15 @@ provider              model              context  max-out  thinking  images
  OneXModel             grok-4             256K     32K      no        no
  星辰-claude-cheap      claude-3.5-haiku   200K     8K       no        no
  星辰-gpt-pro           gpt-5.5            1M       128K     yes       yes
+`;
+
+const cjkProviderOutput = `
+provider         model              context  max-out  thinking  images
+星辰-claude-cheap  claude-opus-4-6    1M       128K     yes       yes   
+星辰-claude-cheap  claude-sonnet-4-6  1M       128K     yes       yes   
+星辰-gpt-pro       gpt-5.4            1M       128K     yes       yes   
+星辰-gpt-pro       gpt-5.5            1M       128K     yes       yes   
+Msutools         gpt-5.5            1M       128K     yes       yes   
 `;
 
 test("parsePiListModels parses observed provider/model table", () => {
@@ -24,6 +34,17 @@ test("parsePiListModels parses observed provider/model table", () => {
     "星辰-gpt-pro/gpt-5.5",
   ]);
   assert.equal(models[3].provider, "星辰-claude-cheap");
+});
+
+test("parsePiListModels parses CJK provider table aligned by display width", () => {
+  const models = parsePiListModels(cjkProviderOutput);
+  assert.deepEqual(models.map((model) => model.id), [
+    "星辰-claude-cheap/claude-opus-4-6",
+    "星辰-claude-cheap/claude-sonnet-4-6",
+    "星辰-gpt-pro/gpt-5.4",
+    "星辰-gpt-pro/gpt-5.5",
+    "Msutools/gpt-5.5",
+  ]);
 });
 
 test("parsePiListModels ignores blank invalid duplicate and missing header rows", () => {
@@ -92,7 +113,7 @@ test("ensureFirstRunConfig rejects non-interactive empty model list and invalid 
   await assert.rejects(fs.access(configPath), /ENOENT/);
 });
 
-test("resolvePiCommand honors explicit env derived and fallback order", () => {
+test("resolvePiCommand compatibility wrapper honors explicit env and resolver fallback", () => {
   const original = process.env.PI_COMMAND;
   try {
     delete process.env.PI_COMMAND;
@@ -102,7 +123,7 @@ test("resolvePiCommand honors explicit env derived and fallback order", () => {
     delete process.env.PI_COMMAND;
     assert.equal(deriveCurrentProcessPiCommand(["node", "/usr/local/bin/pi"], "/usr/bin/node"), "/usr/local/bin/pi");
     assert.equal(deriveCurrentProcessPiCommand(["node", "pi --bad"], "/usr/bin/node"), undefined);
-    assert.equal(resolvePiCommand(), "pi");
+    assert.equal(resolvePiInvocationSync({ argv: ["node"], execPath: "/usr/bin/node", env: {}, fileExists: () => false, isExecutable: () => false }).command, "pi");
   } finally {
     if (original === undefined) delete process.env.PI_COMMAND;
     else process.env.PI_COMMAND = original;
@@ -120,6 +141,17 @@ async function writeExecutable(name: string, body: string): Promise<string> {
 test("listPiModels uses explicit piCommand and returns stdout unchanged", async () => {
   const executable = await writeExecutable("pi", `#!/usr/bin/env node\nconsole.log(${JSON.stringify(observedOutput)});\n`);
   assert.equal(await listPiModels(executable), `${observedOutput}\n`);
+});
+
+test("listPiModels includes stderr output when pi exits successfully", async () => {
+  const executable = await writeExecutable("pi", `#!/usr/bin/env node\nconsole.error(${JSON.stringify(cjkProviderOutput)});\n`);
+  assert.deepEqual(parsePiListModels(await listPiModels(executable)).map((model) => model.id), [
+    "星辰-claude-cheap/claude-opus-4-6",
+    "星辰-claude-cheap/claude-sonnet-4-6",
+    "星辰-gpt-pro/gpt-5.4",
+    "星辰-gpt-pro/gpt-5.5",
+    "Msutools/gpt-5.5",
+  ]);
 });
 
 test("listPiModels uses PI_COMMAND when explicit command is omitted", async () => {
@@ -140,6 +172,7 @@ test("listPiModels reports missing pi command with friendly setup guidance", asy
     (error: any) => {
       assert.match(error.message, /Brainstorming Pro first-run setup could not find the pi executable/);
       assert.match(error.message, /which pi/);
+      assert.match(error.message, /\/clarify-doctor/);
       assert.match(error.message, /PI_COMMAND/);
       return true;
     },

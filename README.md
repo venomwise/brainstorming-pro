@@ -30,6 +30,7 @@ Advanced and troubleshooting options:
 
 - `/clarify <request> --verbose` — preserve the request and emit phase/activity logging.
 - `/clarify <request> --dry-run` — validate input and write planned debug artifacts without launching subagents or bypassing gates.
+- `/clarify-doctor` — produce an advanced pi invocation, PATH, active probe, and diagnostic-only shell probe report for troubleshooting first-run or subagent launch issues.
 
 `/clarify-diff` and `/clarify-clean` are no longer public commands; their maintenance handler files remain internal and are not registered as slash commands.
 
@@ -71,9 +72,9 @@ Example:
 
 Subagent models must use pi's provider-qualified `provider/model-id` form, such as `anthropic/claude-sonnet-4` or `openai/gpt-4o-mini`. Bare model names such as `sonnet` or `gpt-4o` are rejected because pi could resolve them through an unintended default provider. Brainstorming Pro stores model strings only; it does not support a separate `provider` field, and pi remains the authority for provider/model discovery.
 
-On the first interactive `/clarify` run, if no Brainstorming Pro config file is loaded from the user or project config paths above, Brainstorming Pro runs `pi --list-models`, displays the discovered provider/model choices, asks for one default model and optional fallback models, then writes `~/.pi/agent/brainstorming-pro/config.json`. Non-interactive first use stops with setup guidance; run `/clarify` interactively once or create the config file manually using provider-qualified model IDs from `pi --list-models`.
+On the first interactive `/clarify` run, if no Brainstorming Pro config file is loaded from the user or project config paths above, Brainstorming Pro resolves a pi invocation automatically, runs `pi --list-models` (or the equivalent resolved invocation), displays the discovered provider/model choices, asks for one default model and optional fallback models, then writes `~/.pi/agent/brainstorming-pro/config.json`. The automatic resolver tries explicit options, `PI_COMMAND`, the current pi CLI entrypoint, nearby npm bin candidates, package-local `node_modules/.bin/pi`, and finally bare `pi` from the extension process `PATH`. Non-interactive first use stops with setup guidance; run `/clarify` interactively once or create the config file manually using provider-qualified model IDs from `pi --list-models`.
 
-If first-run model discovery cannot find `pi`, run `which pi` in a shell where `pi --list-models` works, set `PI_COMMAND` to that absolute executable path, then restart pi from that environment. `PI_COMMAND` must be a single executable path, not a shell command with arguments. You can also restart pi from an environment whose `PATH` already includes the pi executable, or manually create `~/.pi/agent/brainstorming-pro/config.json` with provider-qualified model IDs such as `anthropic/claude-sonnet-4`.
+If first-run model discovery cannot find `pi` after automatic resolution, run `/clarify-doctor` for a full process, PATH, resolver, active probe, and diagnostic-only shell probe report. As a manual fallback, run `which pi` in a shell where `pi --list-models` works, set `PI_COMMAND` to that absolute executable path, then restart pi from that environment. `PI_COMMAND` must be a single executable path, not a shell command with arguments. You can also restart pi from an environment whose `PATH` already includes the pi executable, or manually create `~/.pi/agent/brainstorming-pro/config.json` with provider-qualified model IDs such as `anthropic/claude-sonnet-4`.
 
 Project-local agents and security-sensitive project config require confirmation. In non-interactive contexts they are rejected unless explicitly trusted by user-level config.
 

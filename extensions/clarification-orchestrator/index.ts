@@ -3,6 +3,7 @@ import { handleClarifyCommand } from "./commands/clarify.ts";
 import { handleStatusCommand } from "./commands/status.ts";
 import { handleSpecPlanCommand } from "./commands/spec-plan.ts";
 import { handleSpecExecCommand } from "./commands/spec-exec.ts";
+import { handleDoctorCommand } from "./commands/doctor.ts";
 
 export default function clarificationOrchestrator(pi: ExtensionAPI) {
   pi.registerCommand("clarify", {
@@ -23,5 +24,10 @@ export default function clarificationOrchestrator(pi: ExtensionAPI) {
   pi.registerCommand("spec-exec", {
     description: "Validate approved requirements and tasks before execution.",
     handler: handleSpecExecCommand,
+  });
+
+  pi.registerCommand("clarify-doctor", {
+    description: "Advanced troubleshooting report for Brainstorming Pro pi invocation and PATH issues.",
+    handler: handleDoctorCommand,
   });
 }

@@ -2,7 +2,7 @@
 
 ## Project Structure & Module Organization
 
-This repository is a Pi package for structured requirement clarification workflows. Core TypeScript lives in `extensions/clarification-orchestrator/`, with command handlers in `commands/`, workflow phases in `phases/`, and shared modules such as `config.ts`, `artifact-store.ts`, `schemas.ts`, and `types.ts`. Agent prompt definitions are in `agents/*.md`; internal prompt resources are in `prompts/*.md`; packaged Pi skills are in `skills/*/SKILL.md`. Tests are grouped by scope under `tests/unit/`, `tests/integration/`, and `tests/security/`, with reusable sample data in `tests/fixtures/`. Specs and generated clarification artifacts belong under `specs/<topic>/`.
+This repository is a Pi package for structured requirement clarification workflows. Core TypeScript lives in `extensions/clarification-orchestrator/`, with command handlers in `commands/`, workflow phases in `phases/`, and shared modules such as `config.ts`, `artifact-store.ts`, `schemas.ts`, `types.ts`, `pi-command.ts`, and `pi-doctor.ts`. Agent prompt definitions are in `agents/*.md`; internal prompt resources are in `prompts/*.md`; packaged Pi skills are in `skills/*/SKILL.md`. Tests are grouped by scope under `tests/unit/`, `tests/integration/`, and `tests/security/`, with reusable sample data in `tests/fixtures/`. Specs and generated clarification artifacts belong under `specs/<topic>/`.
 
 ## Build, Test, and Development Commands
 
@@ -31,4 +31,4 @@ PRs should include a concise summary, validation commands run, linked issue/spec
 
 ## Security & Configuration Tips
 
-Treat project-local configuration and agents as untrusted unless explicitly allowed. Preserve path traversal guards, debug redaction behavior, and provider-qualified model validation. Do not commit local config files or generated run artifacts unless they are intentional fixtures or docs examples.
+Treat project-local configuration and agents as untrusted unless explicitly allowed. Preserve path traversal guards, debug redaction behavior, provider-qualified model validation, and deterministic pi invocation resolution. `PI_COMMAND` must remain a single executable path override; do not add shell command parsing to normal resolver paths. Do not commit local config files or generated run artifacts unless they are intentional fixtures or docs examples.

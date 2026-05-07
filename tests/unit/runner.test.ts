@@ -34,7 +34,7 @@ const config: BrainstormingProConfig = {
 
 test("buildPiProcessArgs sets subagent env and tool flags", () => {
   const args = buildPiProcessArgs({ prompt: "hello", model: " openai/m ", tools: ["read", "grep"], env: { EXTRA: "1" } });
-  assert.equal(args.command, "pi");
+  assert.ok(args.command === "pi" || args.command.endsWith(`${path.sep}pi`) || args.command.endsWith(`${path.sep}pi.cmd`));
   assert.deepEqual(args.args, ["--print", "--mode", "json", "--no-session", "--model", "openai/m", "--tools", "read,grep", "hello"]);
   assert.equal(args.env.BRAINSTORMING_PRO_SUBAGENT, "1");
   assert.equal(args.env.EXTRA, "1");
@@ -42,7 +42,13 @@ test("buildPiProcessArgs sets subagent env and tool flags", () => {
 
 test("buildPiProcessArgs omits model and preserves no-tools flag", () => {
   const args = buildPiProcessArgs({ prompt: "hello", model: "   ", tools: [] });
-  assert.deepEqual(args.args, ["--print", "--mode", "json", "--no-session", "--no-tools", "hello"]);
+  assert.deepEqual(args.args.slice(-6), ["--print", "--mode", "json", "--no-session", "--no-tools", "hello"]);
+});
+
+test("buildPiProcessArgs honors explicit piCommand override", () => {
+  const args = buildPiProcessArgs({ prompt: "hello", piCommand: "/custom/pi" });
+  assert.equal(args.command, "/custom/pi");
+  assert.deepEqual(args.args, ["--print", "--mode", "json", "--no-session", "hello"]);
 });
 
 test("resolveAgentModel falls back to an available configured model", async () => {
