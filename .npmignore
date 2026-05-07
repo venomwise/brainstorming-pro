@@ -1,0 +1,52 @@
+# Dependencies and package-manager caches
+node_modules/
+.pnpm-store/
+.yarn/
+.npm/
+
+# Build outputs and generated artifacts
+dist/
+build/
+out/
+coverage/
+.nyc_output/
+*.tsbuildinfo
+*.tgz
+
+# Logs and diagnostics
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Environment and local configuration
+.env
+.env.*
+*.local
+.pi/
+
+# Editor, OS, and tooling metadata
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# VCS and CI metadata
+.git/
+.github/
+.gitlab-ci.yml
+
+# Tests, fixtures, and development-only sources
+tests/
+specs/
+
+# TypeScript/project development config
+# Keep this out unless consumers need it at runtime.
+tsconfig.json
+
+# Repository/agent-only guidance
+AGENTS.md
