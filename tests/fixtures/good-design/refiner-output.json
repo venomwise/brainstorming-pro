@@ -1,4 +1,0 @@
-{
-  "revisedDesign": "# Good Design\n\nDurable state is persisted to state.json and verified after refinement.",
-  "changeLog": [{ "issueId": "BP-R1-I001", "summary": "Added durable state persistence." }]
-}

@@ -6,23 +6,12 @@ async function readme(): Promise<string> {
   return fs.readFile("README.md", "utf8");
 }
 
-test("README documents the focused public command surface", async () => {
+test("README documents the focused runtime command surface", async () => {
   const text = await readme();
-  for (const command of ["/clarify <request>", "/clarify --resume", "/clarify-status <topic>", "/spec-plan <topic>", "/spec-exec <topic>"]) {
+  for (const command of ["/brainstorm-pro \"<request>\" --topic <english-kebab-case-topic>", "/brainstorm-pro --resume", "/brainstorm-pro --status"]) {
     assert.match(text, new RegExp(command.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
   }
-  assert.match(text, /\/clarify-doctor.*troubleshooting/);
-  assert.doesNotMatch(text, /^- `\/clarify-diff\b/m);
-  assert.doesNotMatch(text, /^- `\/clarify-clean\b/m);
-});
-
-test("README explains internal prompts and PI_COMMAND remediation", async () => {
-  const text = await readme();
-  assert.match(text, /prompts\/\*\.md/);
-  assert.match(text, /not user slash commands/);
-  assert.match(text, /PI_COMMAND/);
-  assert.match(text, /automatic resolver/);
-  assert.match(text, /single executable path/);
-  assert.match(text, /which pi/);
-  assert.match(text, /PI_COMMAND[^.]*not a shell command with arguments/);
+  for (const removed of ["/clarify", "/clarify-status", "/spec-plan", "/spec-exec", "/clarify-doctor", "/clarify-diff", "/clarify-clean"]) {
+    assert.doesNotMatch(text, new RegExp("^- `" + removed.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "\\b", "m"));
+  }
 });
