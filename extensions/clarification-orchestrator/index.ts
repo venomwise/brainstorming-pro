@@ -4,8 +4,14 @@ import { handleStatusCommand } from "./commands/status.ts";
 import { handleSpecPlanCommand } from "./commands/spec-plan.ts";
 import { handleSpecExecCommand } from "./commands/spec-exec.ts";
 import { handleDoctorCommand } from "./commands/doctor.ts";
+import { handleBrainstormProCommand } from "./commands/brainstorm-pro.ts";
 
 export default function clarificationOrchestrator(pi: ExtensionAPI) {
+  pi.registerCommand("brainstorm-pro", {
+    description: "Start, resume, or inspect the durable Brainstorming Pro workflow runtime.",
+    handler: handleBrainstormProCommand,
+  });
+
   pi.registerCommand("clarify", {
     description: "Run a structured multi-agent clarification workflow for a complex topic.",
     handler: (args, ctx) => handleClarifyCommand(args, ctx, { sendMessage: pi.sendMessage.bind(pi) }),

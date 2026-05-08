@@ -89,7 +89,8 @@ Brainstorming Pro 当前围绕如下生命周期工作：
 - 对复杂需求来说，`design.md` 的可信度非常关键。它不应由单个 agent 一次生成后直接进入 planning，而应经过多 Agent review、triage 和必要 revision。
 - 不能依赖父 LLM 通过 prompt 自觉遵循 `/clarify -> /spec-plan -> /spec-exec`。父 LLM 可以表达意图，但状态迁移必须由代码强制。
 - 通用 `subagent` tool 可以作为底层参考，但不应成为顶层产品抽象。Brainstorming Pro 的核心抽象应是 workflow，而不是任意委派。
-- Approval gate 不能交给 agent 自动通过。采用“全自动推进，但在 design approval 和 plan approval 两个关键 gate 暂停等用户确认”的交互模式。
+- Approval gate 不能交给 agent 自动通过。采用“全自动推进非决策阶段，但在 review mode decision、design approval 和 plan approval 等用户决策点暂停”的交互模式。
+- 用户应先审阅第一版 design/plan artifact，再通过统一 `--resume` 入口选择 review 深度：`skip`、`minimal` 或未来的 `full`。
 - Multi-agent review panel 是高价值能力，但必须建立在 workflow runtime、artifact store、event log 和 phase adapter 基础之上。
 - 后续 spec 必须分层落地，否则一次性设计会过大且难以测试。
 
@@ -101,7 +102,7 @@ Brainstorming Pro 当前围绕如下生命周期工作：
 - 持久化状态机。
 - Artifact/version store。
 - Append-only event log。
-- Design 和 plan approval gates。
+- Design/plan review decision gates 和 approval gates。
 - Phase adapter registry。
 - Agent execution runtime。
 - Multi-agent design review panel。
@@ -142,6 +143,7 @@ Artifact Store / Review Ledger / Event Log
 ```text
 User expresses intent.
 Workflow Runtime owns lifecycle.
+Resume drives state-aware decisions.
 Phase adapters produce artifacts.
 Agents provide reasoning and review.
 Code enforces gates.
@@ -155,28 +157,27 @@ Events are append-only.
 
 对外暴露用户意图入口，而不是要求用户手动串联多个底层 command。
 
-理想形态：
+主路径应尽量减少用户需要记忆的命令：
 
 ```text
 /brainstorm-pro "复杂需求描述"
-/brainstorm-pro --continue
+/brainstorm-pro --resume
 /brainstorm-pro --status
-/brainstorm-pro --approve design
-/brainstorm-pro --approve plan
 ```
+
+`--resume` 是状态感知入口：如果存在多个 pending workflow，它先让用户选择 topic；随后根据当前状态展示下一步可选操作，例如选择 review mode、批准 artifact、请求 revision、重试 failed phase 或查看 blocker。用户不需要记住 `approve design`、`review --mode minimal` 等细粒度命令。
 
 未来也可以暴露 tool：
 
 ```ts
 brainstorming_pro({
-  action: "start" | "continue" | "status" | "approve",
+  action: "start" | "resume" | "status",
   topic?: string,
-  request?: string,
-  gate?: "design" | "plan"
+  request?: string
 })
 ```
 
-该接口只表达意图。它不能直接越过 runtime 的状态检查。
+该接口只表达意图。它不能直接越过 runtime 的状态检查。细粒度 approve/review action 可以作为未来自动化 API 或高级快捷方式，但不应成为默认 UX。
 
 #### 2. Workflow Runtime Orchestrator
 
@@ -196,10 +197,12 @@ brainstorming_pro({
 ```text
 intake
   → designing
-  → design-review
+  → awaiting-design-review-decision
+  → design-review | awaiting-design-approval
   → awaiting-design-approval
   → planning
-  → plan-review
+  → awaiting-plan-review-decision
+  → plan-review | awaiting-plan-approval
   → awaiting-plan-approval
   → executing
   → execution-review
@@ -209,12 +212,20 @@ intake
 关键 gate：
 
 ```text
+design review decision gate:
+  user selects skip | minimal | full for exact latest design version
+
 design approval gate:
-  latest design reviewed and explicitly approved by user
+  selected design review mode completed or explicitly skipped, then exact latest design approved by user
+
+plan review decision gate:
+  user selects skip | minimal | full for exact latest requirements/tasks versions
 
 plan approval gate:
-  latest requirements/tasks reviewed and explicitly approved by user
+  selected plan review mode completed or explicitly skipped, then exact latest requirements/tasks approved by user
 ```
+
+`skip` 必须是用户显式选择并记录的结果，不能是隐式 no-op。`full` 在 review panel 尚未实现时应明确提示 unavailable，不能静默降级。
 
 #### 3. Phase Adapters
 
@@ -240,7 +251,7 @@ Phase adapter 只能：
 
 Phase adapter 不能：
 
-- 直接跳过 approval gate；
+- 直接跳过 review decision 或 approval gate；
 - 私自改写 workflow state；
 - 批准自己的产物；
 - 在未授权状态下进入下一阶段。
@@ -324,8 +335,8 @@ specs/<topic>/
 - 顶层 markdown 是 latest mirror。
 - `.workflow/artifacts/*/vN.md` 是版本历史。
 - `.workflow/events.jsonl` 是 append-only audit trail。
-- reviews 和 approvals 记录 exact artifact versions。
-- approval mismatch 时拒绝进入下一阶段。
+- review decisions、reviews 和 approvals 记录 exact artifact versions。
+- review decision 或 approval mismatch 时拒绝进入下一阶段。
 
 ### Components
 
@@ -346,10 +357,10 @@ specs/workflow-runtime-orchestrator/design.md
 - workflow state machine；
 - artifact store；
 - event log；
-- approval gates；
+- review decision gates 和 approval gates；
 - phase adapter interface；
-- start / continue / status / approve；
-- review phase placeholder。
+- start / resume / status；
+- 用户可选择的 skip/minimal review phase placeholder。
 
 不包含：
 
@@ -536,14 +547,16 @@ specs/workflow-ux-interface/design.md
 包含：
 
 - `/brainstorm-pro` command；
-- `--continue`；
+- `--resume` 作为主恢复和决策入口；
 - `--status`；
-- `--approve design`；
-- `--approve plan`；
-- pending decision 展示；
+- 多 pending workflow 选择；
+- review mode decision 展示；
+- approval decision 展示；
 - review summary 展示；
-- resume hints；
+- blocked/failed recovery hints；
 - optional future Pi tool interface。
+
+不应把 `--approve design`、`--approve plan`、`--review --mode` 等细粒度命令作为默认主路径；它们最多是未来高级快捷方式或自动化 API。
 
 依赖：
 
@@ -600,21 +613,29 @@ Workflow Runtime creates state/events/artifact layout
   ↓
 BrainstormingPhaseAdapter produces design draft
   ↓
-DesignReviewPanel reviews design
+Runtime pauses at awaiting-design-review-decision
   ↓
-Triage/revision loop resolves blocking issues
+User resumes and selects design review mode: skip | minimal | full
+  ↓
+DesignReviewPanel reviews design, or review is explicitly skipped by user decision
+  ↓
+Triage/revision loop resolves blocking issues when review runs
   ↓
 Runtime pauses at awaiting-design-approval
   ↓
-User approves exact design version
+User resumes and approves exact design version
   ↓
 SpecPlanPhaseAdapter produces requirements/tasks
   ↓
-PlanReviewPanel validates coverage/order/testability
+Runtime pauses at awaiting-plan-review-decision
+  ↓
+User resumes and selects plan review mode: skip | minimal | full
+  ↓
+PlanReviewPanel validates coverage/order/testability, or review is explicitly skipped by user decision
   ↓
 Runtime pauses at awaiting-plan-approval
   ↓
-User approves exact requirements/tasks versions
+User resumes and approves exact requirements/tasks versions
   ↓
 SpecExecPhaseAdapter executes approved tasks
   ↓
@@ -623,15 +644,15 @@ ExecutionReviewPanel validates implementation
 Runtime marks workflow done or blocked
 ```
 
-第一阶段落地时，review panels 可以是 placeholder：
+第一阶段落地时，review panels 可以是用户可选择的 placeholder：
 
 ```text
-DesignReviewAdapter: skipped/minimal
-PlanReviewAdapter: skipped/minimal
-ExecutionReviewAdapter: skipped/minimal
+DesignReviewAdapter: user-selected skip or minimal
+PlanReviewAdapter: user-selected skip or minimal
+ExecutionReviewAdapter: skipped/minimal according to later execution-review UX
 ```
 
-但状态机必须从一开始保留这些节点，避免后续重构主流程。
+`skipped` 必须来自用户显式选择或明确策略记录，不能是隐式 no-op。但状态机必须从一开始保留这些节点，避免后续重构主流程。
 
 ## Error Handling
 
@@ -639,19 +660,19 @@ ExecutionReviewAdapter: skipped/minimal
 
 ### 1. Fail closed
 
-任何状态损坏、artifact 缺失、approval mismatch、非法 transition 都应拒绝继续推进，而不是猜测用户意图。
+任何状态损坏、artifact 缺失、review decision mismatch、approval mismatch、非法 transition 都应拒绝继续推进，而不是猜测用户意图。
 
 ### 2. Runtime owns transitions
 
 Phase adapter、agent、reviewer、父 LLM 都不能直接推进状态。它们只能返回结果，由 runtime 检查并提交。
 
-### 3. Approval must bind exact versions
+### 3. Review decisions and approvals must bind exact versions
 
-Design approval 必须绑定 exact design artifact version。
+Design review decision 和 design approval 必须绑定 exact design artifact version。
 
-Plan approval 必须绑定 exact requirements/tasks artifact versions。
+Plan review decision 和 plan approval 必须绑定 exact requirements/tasks artifact versions。
 
-如果 artifact 在 approval 前发生变化，必须重新 review 或重新请求 approval。
+如果 artifact 在 review decision、review 或 approval 前发生变化，必须重新选择 review mode、重新 review 或重新请求 approval。
 
 ### 4. Review findings do not mutate artifacts directly
 
@@ -659,13 +680,13 @@ Reviewer 输出 findings。Design/task 修改应由 revision phase 或 adapter �
 
 ### 5. Resume must be deterministic
 
-`continue` 必须基于 `state.json` 和 `events.jsonl` 恢复，不应依赖对话上下文猜测当前阶段。
+`--resume` 必须基于 `state.json` 和 `events.jsonl` 恢复，不应依赖对话上下文猜测当前阶段。`--resume` 可以自动推进非决策阶段，但在 review decision 和 approval gate 处必须展示用户选择，不能静默选择 review mode 或自动 approve。
 
 ### 6. User gates are non-bypassable
 
-进入 planning 前必须有 design approval。
+进入 planning 前必须有 design review decision 和 design approval。
 
-进入 execution 前必须有 plan approval。
+进入 execution 前必须有 plan review decision 和 plan approval。
 
 即使父 LLM 或 subagent 请求继续，也必须由代码拒绝非法推进。
 
@@ -676,6 +697,7 @@ Reviewer 输出 findings。Design/task 修改应由 revision phase 或 adapter �
 ### Runtime-level tests
 
 - 状态机合法/非法 transition。
+- review decision gate enforcement。
 - approval gate enforcement。
 - resume/status。
 - artifact version matching。
@@ -687,7 +709,7 @@ Reviewer 输出 findings。Design/task 修改应由 revision phase 或 adapter �
 - 每个 adapter 声明 required artifacts。
 - adapter output schema validation。
 - adapter failure 转换为 blocked/failed。
-- adapter 不能跳过 gate。
+- adapter 不能跳过 review decision 或 approval gate。
 
 ### Agent runtime tests
 
@@ -708,17 +730,17 @@ Reviewer 输出 findings。Design/task 修改应由 revision phase 或 adapter �
 
 ### End-to-end tests
 
-- start → design → design review → design approval → plan → plan review → plan approval → exec → execution review → done。
-- design approval 前不能 planning。
-- plan approval 前不能 execution。
-- artifact 被篡改后 approval 被拒绝。
-- interrupted workflow 可以 continue。
+- start → design → awaiting design review decision → choose review mode → design review/skipped → design approval → plan → awaiting plan review decision → choose review mode → plan review/skipped → plan approval → exec → execution review → done。
+- design review decision 或 design approval 前不能 planning。
+- plan review decision 或 plan approval 前不能 execution。
+- artifact 被篡改后 stale review decision 或 approval 被拒绝。
+- interrupted workflow 可以通过 `--resume` 恢复。
 
 ### Security tests
 
 - topic path traversal rejected。
 - artifact refs cannot escape topic dir。
-- approvals cannot reference external files。
+- review decisions and approvals cannot reference external files。
 - project-local agents/tools/config policy 不被子 agent 隐式放宽。
 - child process 不注册父级 workflow commands unless explicitly allowed by a future spec。
 
@@ -763,21 +785,21 @@ Reviewer 输出 findings。Design/task 修改应由 revision phase 或 adapter �
 10. workflow-ux-interface / workflow-tui-live-progress polish
 ```
 
-`workflow-ux-interface` 和 `workflow-tui-live-progress` 应分开设计：前者定义命令、approve/status/continue 等交互语义；后者定义 TUI widget、live progress、expanded detail、approval/blocked cards 等显示体验。基础 UX 和最小 TUI 可在 review panels 前提前落地，让后续 multi-agent review 从第一天就接入统一可视化通道。
+`workflow-ux-interface` 和 `workflow-tui-live-progress` 应分开设计：前者定义 `/brainstorm-pro --resume`、status、多 workflow 选择、review decision、approval 等交互语义；后者定义 TUI widget、live progress、expanded detail、approval/blocked cards 等显示体验。基础 UX 和最小 TUI 可在 review panels 前提前落地，让后续 multi-agent review 从第一天就接入统一可视化通道。
 
 ## Global Acceptance Criteria
 
 后续所有子 spec 和实现都必须满足以下全局约束：
 
 - 不能依赖父 LLM 自觉遵循生命周期；生命周期必须由代码强制。
-- 未批准 design 时不能进入 planning。
-- 未批准 plan 时不能进入 execution。
+- 未完成 design review decision 和 design approval 时不能进入 planning。
+- 未完成 plan review decision 和 plan approval 时不能进入 execution。
 - 所有关键 artifacts 必须版本化。
-- Approval 必须绑定 exact artifact versions。
+- Review decision 和 approval 必须绑定 exact artifact versions。
 - Events 必须记录关键状态变化。
 - Agent/reviewer 不能直接修改 workflow state。
 - Review finding 不能直接覆盖主 artifact。
-- Workflow 必须可 status、continue、blocked/failed 诊断。
+- Workflow 必须可 status、resume、blocked/failed 诊断。
 - 可复用 `nicobailon/pi-subagents` 的业务无关基础设施代码，但不得继承其 generic `subagent` product model；derived code 必须保留 MIT license attribution。
 - 长时间运行或多 Agent 并发阶段必须有可观察 UI：至少提供 compact progress、expanded detail、artifact path 和 non-TUI fallback。
 - UI 只能展示 runtime state/progress snapshot，不能成为状态真相来源，也不能绕过 approval gate。

@@ -2,6 +2,8 @@
 
 Brainstorming Pro is a pi package for structured, recoverable requirement clarification. It provides request-first slash commands that create durable clarification artifacts under `specs/<topic>/clarification/run-*`, keep the latest approved or in-review design at `specs/<topic>/design.md`, and hand off explicitly to planning and execution commands.
 
+It also includes an early durable workflow runtime behind `/brainstorm-pro` for state-machine-driven orchestration across design, planning, review decisions, approval gates, and execution.
+
 ## Lifecycle
 
 Brainstorming Pro uses explicit user gates between lifecycle stages:
@@ -20,6 +22,9 @@ Brainstorming Pro uses explicit user gates between lifecycle stages:
 
 Public commands:
 
+- `/brainstorm-pro "<request>" --topic <topic>` — start a runtime-managed workflow for an English kebab-case topic. The runtime creates `specs/<topic>/.workflow/runs/<run-id>/state.json` and enters `designing`.
+- `/brainstorm-pro --resume [topic]` — resume the next runtime-managed workflow step. Resume is state-aware: it displays review choices at review decision gates, displays approval choices at approval gates, returns blocked/failed states fail-closed, and never silently chooses review depth or approval.
+- `/brainstorm-pro --status [topic]` — show runtime phase, pending decision, latest artifact refs, review status, and last error for a runtime-managed workflow.
 - `/clarify <request>` — start a request-first clarification workflow. The system proposes safe topic candidates and asks you to confirm before creating artifacts.
 - `/clarify --resume` — resume a pending clarification run. If multiple resumable runs exist, choose one interactively.
 - `/clarify-status <topic>` — show run metadata, resume status, latest version, artifacts, pending decisions, errors, and resume hint.
@@ -31,6 +36,8 @@ Advanced and troubleshooting options:
 - `/clarify <request> --verbose` — preserve the request and emit phase/activity logging.
 - `/clarify <request> --dry-run` — validate input and write planned debug artifacts without launching subagents or bypassing gates.
 - `/clarify-doctor` — produce an advanced pi invocation, PATH, active probe, and diagnostic-only shell probe report for troubleshooting first-run or subagent launch issues.
+
+`/brainstorm-pro --resume` is the primary runtime path for review decisions and approvals. Internal helper flags such as `--choose-review` and `--decision` are accepted only with `--resume`; they are not a replacement for the state-aware gate model and cannot bypass runtime validation.
 
 `/clarify-diff` and `/clarify-clean` are no longer public commands; their maintenance handler files remain internal and are not registered as slash commands.
 
@@ -116,6 +123,40 @@ specs/<topic>/
 ```
 
 Canonical resume metadata is stored in `metadata.json` and mirrored in `state.json`. Markdown files are human-readable summaries.
+
+Runtime-managed `/brainstorm-pro` workflows use this additional layout:
+
+```text
+specs/<topic>/
+  design.md                         # latest design mirror
+  requirements.md                   # latest requirements mirror
+  tasks.md                          # latest tasks mirror
+  .workflow/
+    events.jsonl                    # append-only workflow audit log
+    artifacts/
+      design/v<N>.md
+      requirements/v<N>.md
+      tasks/v<N>.md
+    decisions/                      # review decisions bound to exact artifact refs
+    approvals/
+      design-approval.json
+      plan-approval.json
+    runs/<run-id>/
+      state.json                    # runtime phase, refs, gates, errors
+```
+
+Runtime artifact references include kind, version, relative path, timestamp, and SHA-256 checksum. Review decisions and approvals are rejected if their referenced versions are stale, missing, outside the topic directory, empty, or checksum-mismatched.
+
+## Runtime gates
+
+The `/brainstorm-pro` runtime pauses at mandatory gates:
+
+- `awaiting-design-review-decision` — inspect the candidate design and choose `skip`, `minimal`, future `full`, revise, or exit. `skip` is recorded explicitly with `reason = "user-selected-skip"`; `minimal` performs artifact existence/path/checksum validation; unavailable `full` is reported without downgrading.
+- `awaiting-design-approval` — approve the exact reviewed/skipped design artifact before planning can start, request revision, show status, or exit.
+- `awaiting-plan-review-decision` — inspect current `requirements.md` and `tasks.md` refs and choose plan review depth.
+- `awaiting-plan-approval` — approve exact requirements/tasks refs before execution can start.
+
+Blocked, failed, and terminal states do not auto-advance on resume.
 
 ## Design gates
 

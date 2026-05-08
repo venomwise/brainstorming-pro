@@ -2,7 +2,7 @@
 
 ## Project Structure & Module Organization
 
-This repository is a Pi package for structured requirement clarification workflows. Core TypeScript lives in `extensions/clarification-orchestrator/`, with command handlers in `commands/`, workflow phases in `phases/`, and shared modules such as `config.ts`, `artifact-store.ts`, `schemas.ts`, `types.ts`, `pi-command.ts`, `pi-doctor.ts`, `topic-validation.ts`, and `topic-proposal-agent.ts`. Agent prompt definitions are in `agents/*.md`; internal prompt resources are in `prompts/*.md`; packaged Pi skills are in `skills/*/SKILL.md`. Tests are grouped by scope under `tests/unit/`, `tests/integration/`, and `tests/security/`, with reusable sample data in `tests/fixtures/`. Specs and generated clarification artifacts belong under `specs/<topic>/`.
+This repository is a Pi package for structured requirement clarification workflows. Core TypeScript lives in `extensions/clarification-orchestrator/`, with command handlers in `commands/`, legacy clarification workflow phases in `phases/`, and the durable `/brainstorm-pro` runtime under `workflow/` (`types.ts`, `state-machine.ts`, `runtime.ts`, workflow artifact/event/gate helpers, and `workflow/adapters/*`). Shared modules include `config.ts`, `artifact-store.ts`, `schemas.ts`, `types.ts`, `pi-command.ts`, `pi-doctor.ts`, `topic-validation.ts`, and `topic-proposal-agent.ts`. Agent prompt definitions are in `agents/*.md`; internal prompt resources are in `prompts/*.md`; packaged Pi skills are in `skills/*/SKILL.md`. Tests are grouped by scope under `tests/unit/`, `tests/integration/`, and `tests/security/`, with workflow runtime unit tests in `tests/unit/workflow/`, runtime command tests in `tests/unit/commands/`, documentation alignment tests in `tests/unit/docs/`, and reusable sample data in `tests/fixtures/`. Specs and generated clarification artifacts belong under `specs/<topic>/`.
 
 ## Development Phase Guidance
 
@@ -25,7 +25,7 @@ Use TypeScript ES modules with explicit `.ts` relative imports, matching existin
 
 ## Testing Guidelines
 
-Tests use Node’s built-in test runner (`node --test`). Name test files `*.test.ts` and place them in the scope that matches behavior: pure modules in `tests/unit`, full command/workflow flows in `tests/integration`, and trust-boundary behavior in `tests/security`. Add fixture files under `tests/fixtures/<scenario>/` when tests need stable artifacts. New commands, lifecycle gates, config changes, path handling, and prompt/tool policy changes should include tests.
+Tests use Node’s built-in test runner (`node --test`). Name test files `*.test.ts` and place them in the scope that matches behavior: pure modules in `tests/unit`, full command/workflow flows in `tests/integration`, and trust-boundary behavior in `tests/security`. Add fixture files under `tests/fixtures/<scenario>/` when tests need stable artifacts. New commands, lifecycle gates, runtime state-machine transitions, artifact layout changes, config changes, path handling, and prompt/tool policy changes should include tests. Keep README and workflow design docs aligned with public `/brainstorm-pro` command names, state names, gate names, and persisted layout; update `tests/unit/docs/workflow-runtime.test.ts` when those docs intentionally change.
 
 ## Commit & Pull Request Guidelines
 
@@ -35,4 +35,4 @@ PRs should include a concise summary, validation commands run, linked issue/spec
 
 ## Security & Configuration Tips
 
-Treat project-local configuration and agents as untrusted unless explicitly allowed. Preserve path traversal guards, strict clarification-topic validation (English kebab-case only), debug redaction behavior, provider-qualified model validation, and deterministic pi invocation resolution. `PI_COMMAND` must remain a single executable path override; do not add shell command parsing to normal resolver paths. Do not commit local config files or generated run artifacts unless they are intentional fixtures or docs examples.
+Treat project-local configuration and agents as untrusted unless explicitly allowed. Preserve path traversal guards, strict clarification-topic validation (English kebab-case only), debug redaction behavior, provider-qualified model validation, and deterministic pi invocation resolution. `/brainstorm-pro` runtime files must stay constrained under `specs/<topic>/` and `.workflow/`; review decisions and approvals must remain bound to exact versioned artifact refs and checksums. `PI_COMMAND` must remain a single executable path override; do not add shell command parsing to normal resolver paths. Do not commit local config files or generated run artifacts unless they are intentional fixtures or docs examples.
