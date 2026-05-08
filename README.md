@@ -69,6 +69,20 @@ Runtime artifact references include kind, version, relative path, timestamp, and
 - User-selected `skip` is explicit state, not an implicit no-op.
 - The runtime fails closed for invalid transitions, missing artifacts, checksum mismatches, corrupted state, or blocked/failed phases.
 
+## Infrastructure-only pi-subagents reuse
+
+Brainstorming Pro may copy or adapt selected business-agnostic infrastructure from [`nicobailon/pi-subagents`](https://github.com/nicobailon/pi-subagents) under the MIT License, but it does not directly depend on, register, or expose the generic `pi-subagents` product model. Reuse is limited to local Brainstorming Pro-owned helpers such as formatting, terminal rendering, atomic JSON persistence, live snapshot presentation, and future foreground child execution patterns.
+
+This package must not add `pi-subagents` as a runtime dependency, register a public generic `subagent` command/tool, expose arbitrary `single`/`parallel`/`chain`/`async` orchestration, import intercom/background async runner modules, or copy upstream builtin role files as user-visible agents. Derived code is tracked by `extensions/clarification-orchestrator/vendor/pi-subagents/reuse-inventory.json`, attributed by `extensions/clarification-orchestrator/vendor/pi-subagents/NOTICE.md`, and constrained by package validation and product-boundary tests.
+
+Maintainers should review the reuse policy before adding or synchronizing derived code:
+
+- `specs/pi-subagents-infrastructure-reuse/design.md`
+- `specs/pi-subagents-infrastructure-reuse/requirements.md`
+- `extensions/clarification-orchestrator/vendor/pi-subagents/`
+
+Future agent execution runtime or workflow TUI specs must reference the reuse inventory and adaptation rules rather than independently copying upstream code.
+
 ## Testing and development
 
 ```bash

@@ -1,0 +1,130 @@
+[
+  {
+    "upstreamPath": "src/tui/render-helpers.ts",
+    "targetPath": "extensions/clarification-orchestrator/tui/render-helpers.ts",
+    "classification": "direct-vendor",
+    "status": "imported",
+    "adaptationNotes": "Copied terminal rendering helper behavior with local ANSI stripping, width calculation, fuzzy filtering, rows, headers, footers, and Brainstorming Pro workflow naming.",
+    "productBoundaryNotes": "Rendering helpers are read-only display utilities and do not introduce upstream product types, commands, intercom, or workflow mutation."
+  },
+  {
+    "upstreamPath": "src/shared/formatters.ts",
+    "targetPath": "extensions/clarification-orchestrator/tui/formatters.ts",
+    "classification": "direct-vendor",
+    "status": "imported",
+    "adaptationNotes": "Copied small formatting functions and removed upstream Usage, SingleResult, ChainStep, and chain product dependencies; exports use Brainstorming Pro workflow terminology.",
+    "productBoundaryNotes": "Provides formatting only for workflow usage, paths, durations, and step summaries; no generic subagent command or orchestration API is exposed."
+  },
+  {
+    "upstreamPath": "src/shared/atomic-json.ts",
+    "targetPath": "extensions/clarification-orchestrator/workflow/atomic-json.ts",
+    "classification": "direct-vendor",
+    "status": "imported",
+    "adaptationNotes": "Copied atomic JSON write pattern into async Brainstorming Pro helper with JSON parse wrapper; not yet integrated into runtime artifact layout.",
+    "productBoundaryNotes": "Helper only performs atomic JSON read/write and cannot approve gates, transition workflow phases, or alter topic/path validation."
+  },
+  {
+    "upstreamPath": "src/shared/jsonl-writer.ts",
+    "targetPath": "extensions/clarification-orchestrator/workflow/jsonl-writer.ts",
+    "classification": "direct-vendor",
+    "status": "planned",
+    "adaptationNotes": "JSONL append helper may be copied for workflow event persistence if ordering and error semantics are locally tested.",
+    "productBoundaryNotes": "Append helper must only write approved workflow event streams and must not become an alternate source of workflow truth."
+  },
+  {
+    "upstreamPath": "src/shared/file-coalescer.ts",
+    "targetPath": "extensions/clarification-orchestrator/workflow/file-coalescer.ts",
+    "classification": "direct-vendor",
+    "status": "planned",
+    "adaptationNotes": "File coalescing utility may be copied for local write batching only after tests prove failure isolation.",
+    "productBoundaryNotes": "Coalescing must not hide failed gate decisions, corrupt state, or reorder workflow-visible artifacts."
+  },
+  {
+    "upstreamPath": "src/tui/render.ts",
+    "targetPath": "extensions/clarification-orchestrator/tui/workflow-widget.ts",
+    "classification": "adapted-infrastructure",
+    "status": "planned",
+    "adaptationNotes": "Rendering structure may inform a Brainstorming Pro workflow widget using WorkflowLiveSnapshot terminology.",
+    "productBoundaryNotes": "TUI rendering must be read-only and must never approve gates, transition phases, or expose generic subagent orchestration."
+  },
+  {
+    "upstreamPath": "src/slash/slash-live-state.ts",
+    "targetPath": "extensions/clarification-orchestrator/workflow/live-snapshot.ts",
+    "classification": "adapted-infrastructure",
+    "status": "planned",
+    "adaptationNotes": "Live state concepts may be adapted into workflow snapshots derived from state.json, events.jsonl, and in-memory progress.",
+    "productBoundaryNotes": "Snapshots are presentation data only and must not serve as authoritative workflow state or mutate approval decisions."
+  },
+  {
+    "upstreamPath": "src/shared/status-format.ts",
+    "targetPath": "extensions/clarification-orchestrator/tui/workflow-result.ts",
+    "classification": "adapted-infrastructure",
+    "status": "planned",
+    "adaptationNotes": "Status text formatting may be adapted for markdown/plain text workflow summaries and non-TUI fallback.",
+    "productBoundaryNotes": "Status output must describe Brainstorming Pro phases and reviewer progress, not generic pi-subagents modes."
+  },
+  {
+    "upstreamPath": "src/runs/shared/pi-args.ts",
+    "targetPath": "extensions/clarification-orchestrator/runtime/agent-execution/launch-spec.ts",
+    "classification": "adapted-infrastructure",
+    "status": "planned",
+    "adaptationNotes": "Pi argument construction may be adapted later for workflow-owned agent and reviewer runs.",
+    "productBoundaryNotes": "Launcher must preserve single-executable PI_COMMAND handling, provider-qualified model validation, --no-session, --no-skills, child marker, and depth guard."
+  },
+  {
+    "upstreamPath": "src/runs/shared/pi-spawn.ts",
+    "targetPath": "extensions/clarification-orchestrator/runtime/agent-execution/spawn.ts",
+    "classification": "adapted-infrastructure",
+    "status": "planned",
+    "adaptationNotes": "Subprocess spawn patterns may be adapted later for foreground workflow-owned child execution.",
+    "productBoundaryNotes": "Spawn code must not parse shell commands, register child workflow commands, or enable background async runner semantics."
+  },
+  {
+    "upstreamPath": "src/runs/shared/single-output.ts",
+    "targetPath": "extensions/clarification-orchestrator/runtime/agent-execution/output.ts",
+    "classification": "adapted-infrastructure",
+    "status": "planned",
+    "adaptationNotes": "Output capture and truncation ideas may be adapted for AgentRun and ReviewerRun artifacts.",
+    "productBoundaryNotes": "Output handling must remain tied to workflow artifacts and cannot expose generic single/parallel/chain/async APIs."
+  },
+  {
+    "upstreamPath": "src/shared/artifacts.ts",
+    "targetPath": "extensions/clarification-orchestrator/workflow/agent-artifacts.ts",
+    "classification": "adapted-infrastructure",
+    "status": "planned",
+    "adaptationNotes": "Artifact helper ideas may be adapted only if they preserve existing specs/<topic>/.workflow layout and checksums.",
+    "productBoundaryNotes": "Artifact helpers must not weaken path traversal guards, review binding, approval gates, or versioned artifact references."
+  },
+  {
+    "upstreamPath": "src/extension/index.ts",
+    "targetPath": null,
+    "classification": "reference-only",
+    "status": "reference-only",
+    "adaptationNotes": "Extension lifecycle patterns may be read for context but the upstream command/product registration model is not imported.",
+    "productBoundaryNotes": "Brainstorming Pro must keep its workflow-owned /brainstorm-pro command surface and must not register a public subagent command or tool."
+  },
+  {
+    "upstreamPath": "src/runs/background/*",
+    "targetPath": null,
+    "classification": "not-reused",
+    "status": "not-reused",
+    "adaptationNotes": "Background async runner modules are out of scope for this reuse spec.",
+    "productBoundaryNotes": "Background jobs and async runner commands require a separate design/spec before any implementation."
+  },
+  {
+    "upstreamPath": "src/intercom/*",
+    "targetPath": null,
+    "classification": "not-reused",
+    "status": "not-reused",
+    "adaptationNotes": "Intercom modules are product semantics and are not reused.",
+    "productBoundaryNotes": "No intercom runtime modules, commands, or public APIs may be introduced by this infrastructure reuse work."
+  },
+  {
+    "upstreamPath": "src/agents/*",
+    "targetPath": null,
+    "classification": "not-reused",
+    "status": "not-reused",
+    "adaptationNotes": "Upstream builtin agent definitions are user-visible product content and are not reused.",
+    "productBoundaryNotes": "Brainstorming Pro must not copy pi-subagents builtin role files as user-visible agents."
+  }
+]
