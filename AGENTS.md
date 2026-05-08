@@ -4,6 +4,10 @@
 
 This repository is a Pi package for structured requirement clarification workflows. Core TypeScript lives in `extensions/clarification-orchestrator/`, with command handlers in `commands/`, workflow phases in `phases/`, and shared modules such as `config.ts`, `artifact-store.ts`, `schemas.ts`, `types.ts`, `pi-command.ts`, `pi-doctor.ts`, `topic-validation.ts`, and `topic-proposal-agent.ts`. Agent prompt definitions are in `agents/*.md`; internal prompt resources are in `prompts/*.md`; packaged Pi skills are in `skills/*/SKILL.md`. Tests are grouped by scope under `tests/unit/`, `tests/integration/`, and `tests/security/`, with reusable sample data in `tests/fixtures/`. Specs and generated clarification artifacts belong under `specs/<topic>/`.
 
+## Development Phase Guidance
+
+This project is still in active development and does not require backward-compatibility guarantees. When refactoring or redesigning behavior, prioritize the best current implementation over preserving existing structure, APIs, or design choices. It is acceptable to make breaking internal changes when the new approach is demonstrably simpler, safer, more maintainable, or better aligned with the project goals; keep public documentation and tests updated to match the improved design.
+
 ## Build, Test, and Development Commands
 
 - `npm run typecheck` — runs `tsc --noEmit` with strict NodeNext TypeScript settings.
