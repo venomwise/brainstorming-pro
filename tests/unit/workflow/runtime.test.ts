@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { WorkflowRuntimeOrchestrator, createInitialWorkflowState, saveWorkflowState, startWorkflow } from "../../../extensions/clarification-orchestrator/workflow/runtime.ts";
+import { WorkflowRuntimeOrchestrator, augmentWorkflow, createInitialWorkflowState, saveWorkflowState, startWorkflow } from "../../../extensions/clarification-orchestrator/workflow/runtime.ts";
 import type { VersionedArtifactRef } from "../../../extensions/clarification-orchestrator/workflow/types.ts";
 
 async function tempProject() {
@@ -17,6 +17,21 @@ test("starts a workflow with isolated state", async () => {
   const { state } = await startWorkflow({ cwd, topic: "my-topic", request: "Build feature", runId: "run-1" });
   assert.equal(state.phase, "designing");
   assert.equal(state.runId, "run-1");
+});
+
+test("augments an existing workflow with supplemental request context", async () => {
+  const cwd = await tempProject();
+  const initial = createInitialWorkflowState({ topic: "my-topic", request: "Build", runId: "run-1" });
+  await saveWorkflowState(cwd, { ...initial, phase: "awaiting-design-approval", artifacts: { design: designRef }, gates: { design: { gate: "design", artifacts: [designRef], approvedBy: "tester", approvedAt: "2026-05-08T00:00:00.000Z", path: ".workflow/approvals/design-approval.json" } } });
+  const { state } = await augmentWorkflow({ cwd, topic: "my-topic", request: "Add audit trail", runId: "run-2", now: new Date("2026-05-08T01:00:00.000Z") });
+  assert.equal(state.runId, "run-2");
+  assert.equal(state.phase, "designing");
+  assert.equal(state.request, "Add audit trail");
+  assert.deepEqual(state.supplementalRequests, [{ request: "Add audit trail", receivedAt: "2026-05-08T01:00:00.000Z" }]);
+  assert.equal(state.contextDesignPath, designRef.path);
+  assert.deepEqual(state.reviewDecisions, {});
+  assert.deepEqual(state.reviewStatus, {});
+  assert.deepEqual(state.gates, {});
 });
 
 test("renders review decision and applies skip", async () => {

@@ -1,9 +1,12 @@
 import type { ExtensionCommandContext } from "@mariozechner/pi-coding-agent";
 import { tokenizeArgs } from "../options.ts";
-import { getStatus, resumeWorkflow, startWorkflow, type RuntimeUserDecision } from "../workflow/runtime.ts";
+import { validateClarificationTopicSlug } from "../topic-validation.ts";
+import { getStatus, resumeWorkflow, startWorkflow, augmentWorkflow, type RuntimeUserDecision } from "../workflow/runtime.ts";
+import { proposeWorkflowTopic } from "../workflow/topic-proposal.ts";
 
 export type BrainstormProOptions =
-  | { action: "start"; request: string; topic: string }
+  | { action: "start"; request: string }
+  | { action: "augment"; request: string; topic: string }
   | { action: "resume"; topic?: string; decision?: RuntimeUserDecision }
   | { action: "status"; topic?: string };
 
@@ -12,8 +15,15 @@ export async function handleBrainstormProCommand(args: string, ctx: ExtensionCom
     const options = parseBrainstormProArgs(args);
     const cwd = ctx.cwd ?? process.cwd();
     if (options.action === "start") {
-      const { state } = await startWorkflow({ cwd, topic: options.topic, request: options.request });
+      if (!ctx.model) throw new Error("Starting a new Brainstorming Pro workflow requires a selected model to propose a topic.");
+      const topic = await proposeWorkflowTopic({ request: options.request, model: ctx.model, modelRegistry: ctx.modelRegistry, signal: ctx.signal });
+      const { state } = await startWorkflow({ cwd, topic, request: options.request });
       ctx.ui.notify(`Started Brainstorming Pro workflow ${state.topic}: ${state.phase}`, "info");
+      return;
+    }
+    if (options.action === "augment") {
+      const { state } = await augmentWorkflow({ cwd, topic: options.topic, request: options.request });
+      ctx.ui.notify(`Updated Brainstorming Pro workflow ${state.topic}: ${state.phase}`, "info");
       return;
     }
     if (options.action === "resume") {
@@ -74,9 +84,13 @@ export function parseBrainstormProArgs(args: string): BrainstormProOptions {
   if (resume) return { action: "resume", topic: topic ?? requestParts[0], decision: reviewMode ?? approvalDecision };
   if (status) return { action: "status", topic: topic ?? requestParts[0] };
   const request = requestParts.join(" ").trim();
-  if (!request) throw new Error("Missing request. Usage: /brainstorm-pro \"<request>\" --topic <topic>, /brainstorm-pro --resume [topic], or /brainstorm-pro --status [topic].");
-  if (!topic) throw new Error("Starting /brainstorm-pro requires --topic <english-kebab-case-topic> for the first runtime version.");
-  return { action: "start", request, topic };
+  if (!request && topic) return { action: "resume", topic, decision: undefined };
+  if (!request) throw new Error("Missing request. Usage: /brainstorm-pro \"<request>\", /brainstorm-pro \"<request>\" --topic <existing-topic>, /brainstorm-pro --topic <existing-topic>, /brainstorm-pro --resume [topic], or /brainstorm-pro --status [topic].");
+  if (topic) {
+    validateClarificationTopicSlug(topic);
+    return { action: "augment", request, topic };
+  }
+  return { action: "start", request };
 }
 
 function renderRuntimeResult(result: unknown): string {

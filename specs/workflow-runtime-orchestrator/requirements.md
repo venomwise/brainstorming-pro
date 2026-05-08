@@ -28,10 +28,10 @@ This spec covers the runtime orchestration layer, artifact storage and versionin
 
 #### Acceptance Criteria
 
-1. WHEN a user starts a workflow with a request, THEN the system SHALL validate the request and topic, create a new workflow state under `specs/<topic>/.workflow/`, append a `workflow.started` event, and enter the initial design phase.
-2. IF the request is empty, the topic is missing, or the topic slug is unsafe, THEN the system SHALL reject the start request without creating or overwriting workflow artifacts.
+1. WHEN a user starts a workflow with a request and no topic, THEN the system SHALL use the selected LLM to propose a safe English kebab-case topic from the request, validate the proposed topic, create a new workflow state under `specs/<topic>/.workflow/`, append a `workflow.started` event, and enter the initial design phase.
+2. IF the request is empty, no model is available for topic proposal, topic proposal fails validation, or an explicit topic slug is unsafe, THEN the system SHALL reject the operation without creating or overwriting workflow artifacts.
 3. WHEN a workflow already exists for the topic, THEN the system SHALL create a new run or versioned state for the new execution rather than mutating prior approved artifacts in place.
-4. WHEN the start flow receives a topic that already has artifacts, THEN the system SHALL preserve prior versions and initialize the new run with explicit references to the current candidate context.
+4. WHEN the start flow receives a request with an existing topic, THEN the system SHALL treat it as supplemental input for that topic, preserve prior versions, initialize the new run with explicit references to the current candidate design context, reset design review/approval state, and return to the design phase.
 
 ### Requirement 2: State Machine and Resume Semantics
 

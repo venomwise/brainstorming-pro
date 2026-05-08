@@ -65,10 +65,10 @@ The execution order matters because the runtime must own state before any comman
     - Record state changes, review decision prompts, approval prompts, and errors through the event log before returning to the caller
     - _Requirements: 1.1, 2.4, 2.5, 2.6, 2.7, 2.8, 2.9, 6.1, 6.4, 6.5, 7.2, 8.2_
   - [✅] 4.2 Add command handlers in `extensions/clarification-orchestrator/commands/brainstorm-pro.ts` and status-related command wiring
-    - Wire `/brainstorm-pro "<request>"`, `/brainstorm-pro --resume`, and `/brainstorm-pro --status` into the runtime orchestrator
+    - Wire `/brainstorm-pro "<request>"`, `/brainstorm-pro "<request>" --topic <existing-topic>`, `/brainstorm-pro --topic <existing-topic>`, `/brainstorm-pro --resume`, and `/brainstorm-pro --status` into the runtime orchestrator
     - Make `/brainstorm-pro --resume` the primary user path for selecting a workflow, choosing review mode, approving artifacts, requesting revision, retrying recoverable failures, or exiting
     - Do not expose `--approve design`, `--approve plan`, or `--review --mode` as required first-version user commands; if helper internals exist, keep them behind runtime validation rather than documenting them as the main path
-    - Preserve the existing `/clarify`, `/spec-plan`, and `/spec-exec` commands as lower-level capabilities beneath the new runtime
+    - Keep `/brainstorm-pro` as the only public workflow command; existing skills remain lower-level implementation capabilities beneath the runtime rather than separate public workflow commands
     - _Requirements: 1.1, 2.4, 2.6, 2.7, 4.1, 4.2, 5.1, 5.2, 7.2_
   - [✅] 4.3 Implement state-aware user decision rendering and handling
     - Render design review decision options from `awaiting-design-review-decision`: `skip`, `minimal`, `full`, `revise`, and `exit`
@@ -106,7 +106,7 @@ The execution order matters because the runtime must own state before any comman
 
 - [✅]* 7. Optional Phase: Documentation and future extension hooks
   - [✅] 7.1 Update `README.md` and `specs/workflow-runtime-orchestrator/design.md` to document the runtime command model and gates
-    - Describe `/brainstorm-pro "<request>"`, `/brainstorm-pro --resume`, `/brainstorm-pro --status`, persisted files, review decision gates, approval gates, and pause/resume behavior for users and maintainers
+    - Describe `/brainstorm-pro "<request>"`, `/brainstorm-pro "<request>" --topic <existing-topic>`, `/brainstorm-pro --topic <existing-topic>`, `/brainstorm-pro --resume`, `/brainstorm-pro --status`, persisted files, review decision gates, approval gates, and pause/resume behavior for users and maintainers
     - _Requirements: 1.2, 2.6, 4.1, 5.1, 7.2_
   - [✅] 7.2 Add a typed future-tool hook in `extensions/clarification-orchestrator/workflow/runtime.ts`
     - Leave a narrow entry point for a future `brainstorming_pro({ action, topic, request })` API without exposing a public tool yet

@@ -13,6 +13,14 @@ export type WorkflowBootstrapInput = {
   runId?: string;
 };
 
+export type WorkflowAugmentInput = {
+  cwd: string;
+  topic: string;
+  request: string;
+  now?: Date;
+  runId?: string;
+};
+
 export type WorkflowRuntimePaths = {
   specsRoot: string;
   topicDir: string;
@@ -42,6 +50,7 @@ export type RuntimeUserDecision =
 
 export type BrainstormingProToolInput =
   | { action: "start"; cwd: string; topic: string; request: string }
+  | { action: "augment"; cwd: string; topic: string; request: string }
   | { action: "resume"; cwd: string; topic?: string; decision?: RuntimeUserDecision }
   | { action: "status"; cwd: string; topic?: string };
 
@@ -102,6 +111,32 @@ export async function startWorkflow(input: WorkflowBootstrapInput): Promise<{ st
   return { state, paths };
 }
 
+export async function augmentWorkflow(input: WorkflowAugmentInput): Promise<{ state: WorkflowState; paths: WorkflowRuntimePaths }> {
+  validateClarificationTopicSlug(input.topic);
+  if (!input.request.trim()) throw new Error("Workflow request cannot be empty.");
+  const previous = await loadLatestWorkflowState(input.cwd, input.topic);
+  const now = (input.now ?? new Date()).toISOString();
+  const state: WorkflowState = {
+    ...previous,
+    runId: input.runId ?? createWorkflowRunId(input.now),
+    request: input.request,
+    supplementalRequests: [...(previous.supplementalRequests ?? []), { request: input.request, receivedAt: now }],
+    contextDesignPath: previous.artifacts.design?.path ?? "design.md",
+    phase: "designing",
+    createdAt: now,
+    updatedAt: now,
+    reviewDecisions: {},
+    reviewStatus: {},
+    gates: {},
+    pendingDecision: undefined,
+    lastError: undefined,
+  };
+  const paths = getWorkflowRuntimePaths(input.cwd, state.topic, state.runId);
+  await fs.mkdir(paths.workflowDir, { recursive: true });
+  await fs.writeFile(paths.statePath, `${JSON.stringify(state, null, 2)}\n`, { flag: "wx" });
+  return { state, paths };
+}
+
 export class WorkflowRuntimeOrchestrator {
   private readonly cwd: string;
   private readonly adapters: Partial<Record<WorkflowPhase, WorkflowAdapter>>;
@@ -113,6 +148,11 @@ export class WorkflowRuntimeOrchestrator {
 
   async startWorkflow(topic: string, request: string): Promise<WorkflowState> {
     const { state } = await startWorkflow({ cwd: this.cwd, topic, request });
+    return this.runActivePhase(state);
+  }
+
+  async augmentWorkflow(topic: string, request: string): Promise<WorkflowState> {
+    const { state } = await augmentWorkflow({ cwd: this.cwd, topic, request });
     return this.runActivePhase(state);
   }
 
@@ -187,6 +227,7 @@ export async function getStatus(cwd: string, topic?: string): Promise<WorkflowRu
 
 export async function invokeBrainstormingProRuntime(input: BrainstormingProToolInput): Promise<BrainstormingProToolResult> {
   if (input.action === "start") return startWorkflow({ cwd: input.cwd, topic: input.topic, request: input.request });
+  if (input.action === "augment") return augmentWorkflow({ cwd: input.cwd, topic: input.topic, request: input.request });
   if (input.action === "resume") return resumeWorkflow({ cwd: input.cwd, topic: input.topic, decision: input.decision });
   return getStatus(input.cwd, input.topic);
 }

@@ -71,6 +71,8 @@ export type WorkflowState = {
   runId: string;
   topic: string;
   request: string;
+  supplementalRequests?: Array<{ request: string; receivedAt: string }>;
+  contextDesignPath?: string;
   phase: WorkflowPhase;
   createdAt: string;
   updatedAt: string;

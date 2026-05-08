@@ -6,7 +6,9 @@ Brainstorming Pro is being refactored around a single durable workflow runtime. 
 
 Public commands:
 
-- `/brainstorm-pro "<request>" --topic <english-kebab-case-topic>` — start a runtime-managed workflow. The runtime creates `specs/<topic>/.workflow/runs/<run-id>/state.json` and enters `designing`.
+- `/brainstorm-pro "<request>"` — start a new runtime-managed workflow. The runtime asks the selected LLM to summarize the request into a safe English kebab-case topic, creates `specs/<topic>/.workflow/runs/<run-id>/state.json`, and enters `designing`.
+- `/brainstorm-pro "<request>" --topic <existing-topic>` — continue an existing brainstorm with the current `design.md` as background context. This creates a new run for the same topic, records the supplemental request, resets design review/approval state, and returns to `designing`.
+- `/brainstorm-pro --topic <existing-topic>` — resume an existing workflow by topic.
 - `/brainstorm-pro --resume [topic]` — resume the next runtime-managed workflow step. Resume is state-aware: it displays review choices at review decision gates, displays approval choices at approval gates, returns blocked/failed states fail-closed, and never silently chooses review depth or approval.
 - `/brainstorm-pro --status [topic]` — show runtime phase, pending decision, latest artifact refs, review status, and last error for a runtime-managed workflow.
 
@@ -64,6 +66,7 @@ Runtime artifact references include kind, version, relative path, timestamp, and
 ## Security model
 
 - Workflow topics must be strict English kebab-case and are constrained to `specs/<topic>/`.
+- New workflow topics are proposed by the selected LLM from the request and then validated by code before any workflow path is created.
 - Workflow paths and artifact refs must stay inside the topic directory.
 - Runtime gates are code-enforced; phase adapters, agents, reviewers, and the parent LLM cannot approve or skip gates directly.
 - User-selected `skip` is explicit state, not an implicit no-op.

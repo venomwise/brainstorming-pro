@@ -8,7 +8,7 @@ async function readme(): Promise<string> {
 
 test("README documents the focused runtime command surface", async () => {
   const text = await readme();
-  for (const command of ["/brainstorm-pro \"<request>\" --topic <english-kebab-case-topic>", "/brainstorm-pro --resume", "/brainstorm-pro --status"]) {
+  for (const command of ["/brainstorm-pro \"<request>\"", "/brainstorm-pro \"<request>\" --topic <existing-topic>", "/brainstorm-pro --topic <existing-topic>", "/brainstorm-pro --resume", "/brainstorm-pro --status"]) {
     assert.match(text, new RegExp(command.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
   }
   for (const removed of ["/clarify", "/clarify-status", "/spec-plan", "/spec-exec", "/clarify-doctor", "/clarify-diff", "/clarify-clean"]) {

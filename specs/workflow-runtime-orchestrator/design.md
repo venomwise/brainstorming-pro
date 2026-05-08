@@ -214,12 +214,14 @@ Workflow Runtime Orchestrator
 第一版以极少命令提供主路径，避免用户学习多个细粒度动作。当前实现的用户入口是：
 
 ```text
-/brainstorm-pro "<request>" --topic <english-kebab-case-topic>
+/brainstorm-pro "<request>"
+/brainstorm-pro "<request>" --topic <existing-topic>
+/brainstorm-pro --topic <existing-topic>
 /brainstorm-pro --resume [topic]
 /brainstorm-pro --status [topic]
 ```
 
-`--topic` 是第一版 start path 的显式安全边界；后续 topic proposal 可以继续复用现有 `/clarify` 能力或接入 runtime。所有 runtime 文件写入 `specs/<topic>/` 下，topic 必须通过 English kebab-case 校验。
+不带 `--topic` 的 request 表示创建新的 brainstorm。runtime 使用当前选中的 LLM 将任意语言的 request 总结为 English kebab-case topic，并在代码层严格校验 topic 后才创建 `specs/<topic>/`。`--topic` 是已有 brainstorm 的定位符，而不是新建 workflow 的必填参数：单独使用时恢复该 topic；与 request 一起使用时表示在已有 `design.md` 背景下补充该 topic 的 design，并创建同 topic 的新 run。`/clarify` 已经不属于当前 lifecycle，topic proposal 由 Brainstorming Pro runtime 自己负责。所有 runtime 文件写入 `specs/<topic>/` 下，topic 必须通过 English kebab-case 校验。
 
 `--resume` 是状态感知入口。它会：
 
@@ -232,7 +234,7 @@ Workflow Runtime Orchestrator
 
 ```ts
 brainstorming_pro({
-  action: "start" | "resume" | "status",
+  action: "start" | "augment" | "resume" | "status",
   topic?: string,
   request?: string,
   decision?: RuntimeUserDecision

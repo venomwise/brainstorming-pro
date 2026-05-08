@@ -9,7 +9,9 @@ async function read(path: string): Promise<string> {
 test("README documents runtime commands, gates, and layout", async () => {
   const readme = await read("README.md");
   for (const expected of [
-    "/brainstorm-pro \"<request>\" --topic <english-kebab-case-topic>",
+    "/brainstorm-pro \"<request>\"",
+    "/brainstorm-pro \"<request>\" --topic <existing-topic>",
+    "/brainstorm-pro --topic <existing-topic>",
     "/brainstorm-pro --resume [topic]",
     "/brainstorm-pro --status [topic]",
     "awaiting-design-review-decision",
@@ -29,7 +31,8 @@ test("README documents runtime commands, gates, and layout", async () => {
 test("workflow design documents implemented command and future hook names", async () => {
   const design = await read("specs/workflow-runtime-orchestrator/design.md");
   for (const expected of [
-    "/brainstorm-pro \"<request>\" --topic <english-kebab-case-topic>",
+    "/brainstorm-pro \"<request>\"",
+    "/brainstorm-pro \"<request>\" --topic <existing-topic>",
     "brainstorming_pro({",
     "RuntimeUserDecision",
     "VersionedArtifactRef",
