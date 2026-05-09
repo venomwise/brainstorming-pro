@@ -12,9 +12,6 @@ const required = [
   "extensions/clarification-orchestrator/workflow/runtime.ts",
   "extensions/clarification-orchestrator/workflow/state-machine.ts",
   "extensions/clarification-orchestrator/workflow/types.ts",
-  "skills/brainstorming-pro/SKILL.md",
-  "skills/spec-plan-pro/SKILL.md",
-  "skills/spec-exec-pro/SKILL.md",
 ];
 
 const approvedDerivedDirectories = [
@@ -46,7 +43,6 @@ for (const file of required) {
 
 const pkg = JSON.parse(await fs.readFile(path.join(root, "package.json"), "utf8"));
 if (!pkg.pi?.extensions?.length) throw new Error("package.json missing pi.extensions");
-if (!pkg.pi?.skills?.length) throw new Error("package.json missing pi.skills");
 validateNoPiSubagentsDependency(pkg);
 
 await validatePiSubagentsReuseMetadata();

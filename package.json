@@ -29,9 +29,6 @@
   "pi": {
     "extensions": [
       "./extensions/clarification-orchestrator"
-    ],
-    "skills": [
-      "./skills"
     ]
   }
 }

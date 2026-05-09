@@ -12,9 +12,6 @@ const requiredFiles = [
   "extensions/clarification-orchestrator/workflow/runtime.ts",
   "extensions/clarification-orchestrator/workflow/state-machine.ts",
   "extensions/clarification-orchestrator/workflow/types.ts",
-  "skills/brainstorming-pro/SKILL.md",
-  "skills/spec-plan-pro/SKILL.md",
-  "skills/spec-exec-pro/SKILL.md",
 ];
 
 type FixtureOptions = {
@@ -31,7 +28,7 @@ async function createFixture(options: FixtureOptions = {}): Promise<string> {
     await writeFixtureFile(dir, file, file.endsWith(".ts") ? "export {};\n" : "# skill\n");
   }
   await writeFixtureFile(dir, "package.json", JSON.stringify(options.packageJson ?? {
-    pi: { extensions: ["./extensions/clarification-orchestrator"], skills: ["./skills"] },
+    pi: { extensions: ["./extensions/clarification-orchestrator"] },
   }, null, 2));
   await writeFixtureFile(dir, "extensions/clarification-orchestrator/vendor/pi-subagents/LICENSE", "MIT License\n");
   if (!options.omitNotice) {
@@ -133,7 +130,7 @@ test("validate-package rejects pi-subagents dependencies and imports", async () 
   const dependencyDir = await createFixture({
     packageJson: {
       dependencies: { "pi-subagents": "^0.24.0" },
-      pi: { extensions: ["./extensions/clarification-orchestrator"], skills: ["./skills"] },
+      pi: { extensions: ["./extensions/clarification-orchestrator"] },
     },
   });
   try {
