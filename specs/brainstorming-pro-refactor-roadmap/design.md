@@ -2,7 +2,7 @@
 
 ## Summary
 
-本文档记录 Brainstorming Pro 颠覆式重构的全局设计思路、核心架构决策、长期目标和分阶段 spec 拆分。它不是某一个具体子系统的实现设计，而是后续所有重构 spec 的上位约束文档，用于确保 `workflow-runtime-orchestrator`、agent execution runtime、multi-agent review panel、skill phase adapters、plan/execution review 等后续设计不会偏离总体方向。全局目标是巩固当前以 `/brainstorm-pro` 为唯一公开入口的 runtime-first 架构，把需求澄清、artifact 生成、review/approval gate、planning、execution 和 execution review 都收敛到代码强制状态机中，形成可恢复、可审计、支持多 Agent 交叉评审的复杂需求澄清与稳定实现平台。
+本文档记录 Brainstorming Pro 颠覆式重构的全局设计思路、核心架构决策、长期目标和分阶段 spec 拆分。它不是某一个具体子系统的实现设计，而是后续所有重构 spec 的上位约束文档，用于确保 `workflow-runtime-orchestrator`、agent execution runtime、multi-agent review panel、skill phase adapters、plan review、controlled execution 等后续设计不会偏离总体方向。全局目标是巩固当前以 `/brainstorm-pro` 为唯一公开入口的 runtime-first 架构，把需求澄清、artifact 生成、review/approval gate、planning 和 controlled execution 都收敛到代码强制状态机中，形成可恢复、可审计、支持多 Agent 交叉评审的复杂需求澄清与稳定实现平台。
 
 ## Goals
 
@@ -62,7 +62,7 @@ Brainstorming Pro 当前采用单一 `/brainstorm-pro` workflow intent interface
 - phase adapters 实际调用 LLM/skill/agent 生成 artifacts；
 - durable artifact version commit 的完整 runtime 集成；
 - append-only event log 的完整 runtime 写入；
-- multi-agent design/plan/execution review panel；
+- multi-agent design/plan review panel；
 - agent execution runtime；
 - live TUI progress；
 - 真正的 planning/execution 自动化。
@@ -83,8 +83,8 @@ Brainstorming Pro 当前采用单一 `/brainstorm-pro` workflow intent interface
 6. runtime 记录用户 review mode、approval 或 revision 决策。
 7. 后续 SpecPlanPhaseAdapter 生成 requirements/tasks。
 8. runtime 暂停在 plan review decision / approval gate。
-9. 后续 SpecExecPhaseAdapter 执行 approved tasks。
-10. 后续 ExecutionReviewPanel 检查执行是否偏离 approved artifacts。
+9. 后续 Controlled SpecExecPhaseAdapter 按 code-owned task loop 执行 approved tasks、checkpoint 和 evidence validation。
+10. 执行完成且无 blocker 后，runtime 记录 execution report 并进入 done。
 
 因此，全局重构的目标不是简单增加一个 command 或一个通用 subagent tool，而是建立一个稳定的需求交付工作流平台：
 
@@ -96,8 +96,8 @@ Brainstorming Pro 当前采用单一 `/brainstorm-pro` workflow intent interface
   → 自动生成 requirements/tasks
   → 多 Agent 评审 plan
   → 用户批准 plan
-  → 稳定执行 tasks
-  → 执行后 review
+  → 稳定执行 tasks/checkpoints
+  → 记录 execution report
   → done
 ```
 
@@ -128,7 +128,7 @@ Brainstorming Pro 当前采用单一 `/brainstorm-pro` workflow intent interface
 - Phase adapter registry。
 - Agent execution runtime。
 - Multi-agent design review panel。
-- Plan review 和 execution review。
+- Plan review 和 controlled execution。
 - Public workflow UX。
 - Workflow TUI / live progress UI。
 
@@ -227,7 +227,6 @@ intake
   → plan-review | awaiting-plan-approval
   → awaiting-plan-approval
   → executing
-  → execution-review
   → done
 ```
 
@@ -261,7 +260,6 @@ DesignReviewPhaseAdapter
 SpecPlanPhaseAdapter
 PlanReviewPhaseAdapter
 SpecExecPhaseAdapter
-ExecutionReviewPhaseAdapter
 ```
 
 Phase adapter 只能：
@@ -322,12 +320,6 @@ Plan Review Panel
   ├─ Dependency / Ordering Reviewer
   ├─ Testability Reviewer
   └─ Risk Reviewer
-
-Execution Review Panel
-  ├─ Diff Reviewer
-  ├─ Requirement Coverage Reviewer
-  ├─ Test Reviewer
-  └─ Regression Risk Reviewer
 ```
 
 Review panel 输出结构化 findings，不直接改写主 artifact。Runtime 或专门 triage phase 负责聚合、裁决、触发 revision 或请求用户决策。
@@ -389,7 +381,7 @@ specs/workflow-runtime-orchestrator/design.md
 - 完整 multi-agent review panel；
 - reviewer prompt；
 - agent execution runtime 细节；
-- execution diff review。
+- terminal execution review 或 execution diff review。
 
 依赖：无，是后续所有 spec 的基础。
 
@@ -456,22 +448,50 @@ specs/agent-execution-runtime/design.md
 specs/skill-phase-adapters/design.md
 ```
 
-定位：把 package-owned `brainstorming`、`spec-plan`、`spec-exec` skill 的方法论和当前 adapter skeleton 落实为 workflow-owned phase adapters。该 spec 只设计 runtime-owned phase 行为，不新增独立 public command surface。
+定位：把 package-owned `brainstorming`、`spec-plan` skill 的方法论和当前 adapter skeleton 落实为 workflow-owned design/planning phase adapters，并为 controlled execution adapter 建立共享 prompt/schema/context 基础。该 spec 只设计 runtime-owned phase 行为，不新增独立 public command surface。
 
 包含：
 
 - BrainstormingPhaseAdapter；
 - SpecPlanPhaseAdapter；
-- SpecExecPhaseAdapter；
 - adapter input/output schema；
 - artifact commit contract；
 - failure/block semantics；
-- resume semantics。
+- SpecExecPhaseAdapter 的 deferred boundary。
 
 依赖：
 
 - `workflow-runtime-orchestrator`。
-- 部分依赖 `agent-execution-runtime`，取决于 adapter 是直接调用内部逻辑还是通过子 agent 调用 skill。
+- `agent-execution-runtime`。
+
+#### Spec 4.1: `controlled-spec-exec-adapter`
+
+建议路径：
+
+```text
+specs/controlled-spec-exec-adapter/design.md
+```
+
+定位：把 `spec-exec` skill 的执行纪律升级为 code-owned task execution loop。代码解析 `tasks.md`、选择当前 task/checkpoint、调用 LLM single-task worker、校验结构化结果、更新 checkbox、记录 execution report；LLM 不控制全局执行顺序，也不修改 progress markers。执行完成且无 blocker 后进入 `done`，不设置默认 execution-review phase。
+
+包含：
+
+- TaskPlanParser；
+- ExecutionLoopController；
+- TaskCheckboxWriter；
+- Single-task `task-executor` prompt/schema；
+- optional execution mode；
+- checkpoint-as-task execution；
+- task run records；
+- execution report；
+- unauthorized tasks.md mutation guard；
+- blocked/failed recovery semantics。
+
+依赖：
+
+- `workflow-runtime-orchestrator`。
+- `agent-execution-runtime`。
+- `skill-phase-adapters` shared adapter foundation。
 
 #### Spec 5: `design-review-panel`
 
@@ -529,34 +549,7 @@ specs/plan-review-panel/design.md
 - `skill-phase-adapters` 中的 spec-plan adapter。
 - 最好在 `design-review-panel` 之后，因为两者共享 review/triage 模型。
 
-#### Spec 7: `execution-review-panel`
-
-建议路径：
-
-```text
-specs/execution-review-panel/design.md
-```
-
-定位：执行完成后验证实现没有偏离 approved design 和 approved tasks。
-
-包含：
-
-- diff review；
-- requirement coverage review；
-- test review；
-- regression risk review；
-- failed execution recovery；
-- post-exec fix loop；
-- final done criteria。
-
-依赖：
-
-- `workflow-runtime-orchestrator`。
-- `agent-execution-runtime`。
-- `skill-phase-adapters` 中的 spec-exec adapter。
-- `plan-review-panel`。
-
-#### Spec 8: `workflow-ux-interface`
+#### Spec 7: `workflow-ux-interface`
 
 建议路径：
 
@@ -585,7 +578,7 @@ specs/workflow-ux-interface/design.md
 - `workflow-runtime-orchestrator`。
 - 可在 review panels 之前先做基础 UX，后续再增强展示。
 
-#### Spec 9: `workflow-tui-live-progress`
+#### Spec 8: `workflow-tui-live-progress`
 
 建议路径：
 
@@ -621,7 +614,7 @@ specs/workflow-tui-live-progress/design.md
 - `workflow-runtime-orchestrator`。
 - `pi-subagents-infrastructure-reuse`，用于复用或改造 TUI rendering、snapshot、formatter、animation lifecycle。
 - `agent-execution-runtime` 的 progress event。
-- `design-review-panel` / `plan-review-panel` / `execution-review-panel` 的 reviewer status schema。
+- `design-review-panel` / `plan-review-panel` 的 reviewer status schema，以及 controlled execution 的 task progress schema。
 - 可先实现最小 phase timeline widget，再逐步增强 reviewer detail。
 
 ### Data Flow
@@ -659,9 +652,9 @@ Runtime pauses at awaiting-plan-approval
   ↓
 User resumes and approves exact requirements/tasks versions
   ↓
-SpecExecPhaseAdapter executes approved tasks
+Controlled SpecExecPhaseAdapter executes approved tasks/checkpoints
   ↓
-ExecutionReviewPanel validates implementation
+Runtime records execution report
   ↓
 Runtime marks workflow done or blocked
 ```
@@ -671,10 +664,10 @@ Runtime marks workflow done or blocked
 ```text
 DesignReviewAdapter: user-selected skip or minimal
 PlanReviewAdapter: user-selected skip or minimal
-ExecutionReviewAdapter: skipped/minimal according to later execution-review UX
+Controlled SpecExecAdapter: code-owned task loop with per-task evidence and blockers
 ```
 
-`skipped` 必须来自用户显式选择或明确策略记录，不能是隐式 no-op。但状态机必须从一开始保留这些节点，避免后续重构主流程。
+`skipped` 必须来自用户显式选择或明确策略记录，不能是隐式 no-op。Design/plan review 节点必须保留；execution correctness 则内嵌在 controlled task loop、checkpoint tasks、evidence validation 和 blocker escalation 中，不再设置默认终局 execution-review 节点。
 
 ## Error Handling
 
@@ -752,7 +745,7 @@ Reviewer 输出 findings。Design/task 修改应由 revision phase 或 adapter �
 
 ### End-to-end tests
 
-- start → design → awaiting design review decision → choose review mode → design review/skipped → design approval → plan → awaiting plan review decision → choose review mode → plan review/skipped → plan approval → exec → execution review → done。
+- start → design → awaiting design review decision → choose review mode → design review/skipped → design approval → plan → awaiting plan review decision → choose review mode → plan review/skipped → plan approval → controlled exec → done。
 - design review decision 或 design approval 前不能 planning。
 - plan review decision 或 plan approval 前不能 execution。
 - artifact 被篡改后 stale review decision 或 approval 被拒绝。
@@ -775,7 +768,7 @@ Reviewer 输出 findings。Design/task 修改应由 revision phase 或 adapter �
 3. Review triage 是单独 agent，还是 runtime deterministic merge + optional agent summary？
 4. Design revision loop 是否自动执行，还是遇到 blocking finding 后先询问用户？
 5. Plan review failed 后是否自动重新生成 tasks？
-6. Execution review failed 后是否自动进入 fix loop？
+6. Controlled execution blocked 后应如何通过 `--resume` 选择 retry、abort、处理 missing dependency 或请求 plan revision？
 7. 是否需要 background async runner？如果需要，应在 workflow runtime 稳定后单独设计。
 8. 是否公开 Pi tool interface？如果公开，如何避免父 LLM 绕过 workflow command/gate？
 9. 是否支持从 `events.jsonl` 自动重建损坏的 `state.json`？
@@ -795,6 +788,8 @@ Planning 和 execution 行为必须通过 runtime phases/adapters 暴露，并�
    ↓
 4. skill-phase-adapters
    ↓
+4.1 controlled-spec-exec-adapter
+   ↓
 5. workflow-ux-interface minimal
    ↓
 6. workflow-tui-live-progress minimal
@@ -803,9 +798,7 @@ Planning 和 execution 行为必须通过 runtime phases/adapters 暴露，并�
    ↓
 8. plan-review-panel
    ↓
-9. execution-review-panel
-   ↓
-10. workflow-ux-interface / workflow-tui-live-progress polish
+9. workflow-ux-interface / workflow-tui-live-progress polish
 ```
 
 `workflow-ux-interface` 和 `workflow-tui-live-progress` 应分开设计：前者定义 `/brainstorm-pro --resume`、status、多 workflow 选择、review decision、approval 等交互语义；后者定义 TUI widget、live progress、expanded detail、approval/blocked cards 等显示体验。基础 UX 和最小 TUI 可在 review panels 前提前落地，让后续 multi-agent review 从第一天就接入统一可视化通道。
