@@ -1,0 +1,54 @@
+import assert from "node:assert/strict";
+import test from "node:test";
+import { AGENT_ROLE_DEFINITIONS, validateRoleForPhase } from "../../extensions/clarification-orchestrator/runtime/agent-execution/roles.ts";
+import type { AgentRole } from "../../extensions/clarification-orchestrator/runtime/agent-execution/types.ts";
+
+const expectedRoles: AgentRole[] = [
+  "design-author",
+  "design-reviser",
+  "plan-author",
+  "task-executor",
+  "minimal-reviewer",
+];
+
+test("agent role registry defines first-version roles with no skills and no session", () => {
+  assert.deepEqual(Object.keys(AGENT_ROLE_DEFINITIONS).sort(), [...expectedRoles].sort());
+
+  for (const role of expectedRoles) {
+    const definition = AGENT_ROLE_DEFINITIONS[role];
+    assert.equal(definition.role, role);
+    assert.equal(definition.allowSkills, false);
+    assert.equal(definition.allowSession, false);
+    assert.ok(definition.allowedPhases.length > 0);
+    assert.ok(definition.timeoutMs > 0);
+    assert.ok(definition.maxStdoutBytes > 0);
+    assert.ok(definition.maxStderrBytes > 0);
+    assert.ok(definition.maxOutputBytes > 0);
+    assert.ok(definition.maxRetries >= 0);
+  }
+});
+
+test("validateRoleForPhase accepts roles only in their allowed workflow phases", () => {
+  assert.equal(validateRoleForPhase("design-author", "designing").ok, true);
+  assert.equal(validateRoleForPhase("plan-author", "planning").ok, true);
+  assert.equal(validateRoleForPhase("task-executor", "executing").ok, true);
+  assert.equal(validateRoleForPhase("minimal-reviewer", "design-review").ok, true);
+  assert.equal(validateRoleForPhase("minimal-reviewer", "plan-review").ok, true);
+  assert.equal(validateRoleForPhase("minimal-reviewer", "execution-review").ok, true);
+
+  const mismatch = validateRoleForPhase("plan-author", "awaiting-design-approval");
+  assert.equal(mismatch.ok, false);
+  if (!mismatch.ok) {
+    assert.equal(mismatch.error.kind, "role-not-allowed");
+    assert.match(mismatch.error.message, /not allowed/u);
+  }
+});
+
+test("validateRoleForPhase rejects unknown roles before spawn dependencies are needed", () => {
+  const result = validateRoleForPhase("subagent" as AgentRole, "designing");
+  assert.equal(result.ok, false);
+  if (!result.ok) {
+    assert.equal(result.error.kind, "role-not-allowed");
+    assert.match(result.error.message, /Unknown agent role/u);
+  }
+});
