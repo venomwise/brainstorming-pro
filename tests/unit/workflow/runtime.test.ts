@@ -3,6 +3,8 @@ import assert from "node:assert/strict";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { createWorkflowLayout, checksum } from "../../../extensions/clarification-orchestrator/workflow/artifact-store.ts";
+import { readWorkflowEvents } from "../../../extensions/clarification-orchestrator/workflow/events.ts";
 import { WorkflowRuntimeOrchestrator, augmentWorkflow, createInitialWorkflowState, saveWorkflowState, startWorkflow } from "../../../extensions/clarification-orchestrator/workflow/runtime.ts";
 import type { VersionedArtifactRef } from "../../../extensions/clarification-orchestrator/workflow/types.ts";
 
@@ -61,4 +63,68 @@ test("approval advances design gate to planning", async () => {
   await saveWorkflowState(cwd, { ...state, phase: "awaiting-design-approval", artifacts: { design: designRef } });
   const result = await new WorkflowRuntimeOrchestrator(cwd).resumeWorkflow("my-topic", { type: "approval", action: "approve", user: "tester" });
   assert.equal("phase" in result && result.phase, "planning");
+});
+
+test("adapter artifact commit requests are committed by runtime", async () => {
+  const cwd = await tempProject();
+  const runtime = new WorkflowRuntimeOrchestrator(cwd, {
+    adapters: {
+      designing: {
+        run() {
+          return {
+            kind: "artifact-commit-request",
+            artifacts: [{ kind: "design", content: "# Design\n", summary: "draft" }],
+            metadata: { source: "test" },
+          };
+        },
+      },
+    },
+  });
+
+  const state = await runtime.startWorkflow("my-topic", "Build");
+  assert.equal(state.phase, "awaiting-design-review-decision");
+  assert.equal(state.artifacts.design?.kind, "design");
+  assert.equal(state.artifacts.design?.version, 1);
+  assert.equal(state.artifacts.design?.checksum, checksum("# Design\n"));
+  assert.equal(await fs.readFile(path.join(cwd, "specs", "my-topic", "design.md"), "utf8"), "# Design\n");
+
+  const events = await readWorkflowEvents(await createWorkflowLayout(cwd, "my-topic"));
+  assert.deepEqual(events.map((event) => event.type), ["artifact.created", "phase.completed"]);
+});
+
+test("adapter blocked results do not commit or advance", async () => {
+  const cwd = await tempProject();
+  const runtime = new WorkflowRuntimeOrchestrator(cwd, {
+    adapters: {
+      designing: {
+        run() {
+          return { kind: "blocked", reason: "missing precondition", diagnostics: { code: "test" } };
+        },
+      },
+    },
+  });
+
+  const state = await runtime.startWorkflow("my-topic", "Build");
+  assert.equal(state.phase, "blocked");
+  assert.equal(state.lastError?.message, "missing precondition");
+  await assert.rejects(fs.readFile(path.join(cwd, "specs", "my-topic", "design.md"), "utf8"), /ENOENT/u);
+});
+
+test("adapter failed results do not commit and preserve retryability", async () => {
+  const cwd = await tempProject();
+  const runtime = new WorkflowRuntimeOrchestrator(cwd, {
+    adapters: {
+      designing: {
+        run() {
+          return { kind: "failed", error: { kind: "invalid-output", message: "bad json", retryable: false } };
+        },
+      },
+    },
+  });
+
+  const state = await runtime.startWorkflow("my-topic", "Build");
+  assert.equal(state.phase, "failed");
+  assert.equal(state.lastError?.recoverable, false);
+  assert.equal(state.lastError?.message, "bad json");
+  await assert.rejects(fs.readFile(path.join(cwd, "specs", "my-topic", "design.md"), "utf8"), /ENOENT/u);
 });

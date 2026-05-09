@@ -2,7 +2,11 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
 import { validateClarificationTopicSlug } from "../topic-validation.ts";
+import { createWorkflowLayout, writeVersionedArtifact } from "./artifact-store.ts";
+import { appendWorkflowEvent } from "./events.ts";
 import { transition, type TransitionContext } from "./state-machine.ts";
+import { defaultWorkflowAdapters } from "./adapters/registry.ts";
+import { isAdapterPhaseResult, type AdapterPhaseResult } from "./adapters/types.ts";
 import type { ApprovalRef, ReviewDecisionRef, ReviewMode, UserDecisionRequest, VersionedArtifactRef, WorkflowErrorSnapshot, WorkflowPhase, WorkflowState } from "./types.ts";
 
 export type WorkflowBootstrapInput = {
@@ -57,11 +61,12 @@ export type BrainstormingProToolInput =
 export type BrainstormingProToolResult = Awaited<ReturnType<typeof startWorkflow>> | Awaited<ReturnType<typeof resumeWorkflow>> | Awaited<ReturnType<typeof getStatus>>;
 
 export type WorkflowAdapter = {
-  run(state: WorkflowState): Promise<Partial<WorkflowState> | void> | Partial<WorkflowState> | void;
+  run(state: WorkflowState): Promise<Partial<WorkflowState> | AdapterPhaseResult | void> | Partial<WorkflowState> | AdapterPhaseResult | void;
 };
 
 export type WorkflowRuntimeOptions = {
   adapters?: Partial<Record<WorkflowPhase, WorkflowAdapter>>;
+  useDefaultAdapters?: boolean;
 };
 
 export function createWorkflowRunId(date = new Date()): string {
@@ -143,7 +148,7 @@ export class WorkflowRuntimeOrchestrator {
 
   constructor(cwd: string, options: WorkflowRuntimeOptions = {}) {
     this.cwd = cwd;
-    this.adapters = options.adapters ?? {};
+    this.adapters = options.useDefaultAdapters ? { ...defaultWorkflowAdapters(cwd), ...(options.adapters ?? {}) } : (options.adapters ?? {});
   }
 
   async startWorkflow(topic: string, request: string): Promise<WorkflowState> {
@@ -178,12 +183,63 @@ export class WorkflowRuntimeOrchestrator {
     const adapter = this.adapters[state.phase];
     if (!adapter) return saveWorkflowState(this.cwd, withPendingDecision(state));
     try {
-      const patch = await adapter.run(state);
-      const next = { ...state, ...patch, updatedAt: new Date().toISOString() };
+      const result = await adapter.run(state);
+      const next = await this.applyAdapterResult(state, result);
       return saveWorkflowState(this.cwd, withPendingDecision(next));
     } catch (error) {
       return saveWorkflowState(this.cwd, { ...state, phase: "blocked", lastError: { message: error instanceof Error ? error.message : String(error), phase: state.phase, recoverable: true, occurredAt: new Date().toISOString() }, updatedAt: new Date().toISOString() });
     }
+  }
+
+  private async applyAdapterResult(state: WorkflowState, result: Partial<WorkflowState> | AdapterPhaseResult | void): Promise<WorkflowState> {
+    if (!result) return { ...state, updatedAt: new Date().toISOString() };
+    if (!isAdapterPhaseResult(result)) return { ...state, ...result, updatedAt: new Date().toISOString() };
+
+    if (result.kind === "artifact-commit-request") {
+      const layout = await createWorkflowLayout(this.cwd, state.topic);
+      const committed: Partial<WorkflowState["artifacts"]> = {};
+      for (const artifact of result.artifacts) {
+        const ref = await writeVersionedArtifact(layout, artifact.kind, artifact.content);
+        committed[artifact.kind] = ref;
+        await appendWorkflowEvent(layout, { type: "artifact.created", phase: state.phase, details: { artifact: ref, summary: artifact.summary } });
+      }
+      const artifacts = { ...state.artifacts, ...committed };
+      const phase = phaseAfterArtifactCommit(state.phase);
+      await appendWorkflowEvent(layout, { type: "phase.completed", phase: state.phase, details: { nextPhase: phase, artifacts: Object.values(committed), metadata: result.metadata } });
+      return { ...state, phase, artifacts, updatedAt: new Date().toISOString() };
+    }
+
+    if (result.kind === "blocked") {
+      const layout = await createWorkflowLayout(this.cwd, state.topic);
+      await appendWorkflowEvent(layout, { type: "phase.blocked", phase: state.phase, details: { reason: result.reason, diagnostics: result.diagnostics } });
+      return {
+        ...state,
+        phase: "blocked",
+        lastError: {
+          message: result.reason,
+          phase: state.phase,
+          recoverable: true,
+          occurredAt: new Date().toISOString(),
+          details: result.diagnostics,
+        },
+        updatedAt: new Date().toISOString(),
+      };
+    }
+
+    const layout = await createWorkflowLayout(this.cwd, state.topic);
+    await appendWorkflowEvent(layout, { type: "phase.failed", phase: state.phase, details: { error: result.error } });
+    return {
+      ...state,
+      phase: result.error.retryable ? "blocked" : "failed",
+      lastError: {
+        message: result.error.message,
+        phase: state.phase,
+        recoverable: result.error.retryable,
+        occurredAt: new Date().toISOString(),
+        details: { kind: result.error.kind, details: result.error.details },
+      },
+      updatedAt: new Date().toISOString(),
+    };
   }
 
   private async applyDecision(state: WorkflowState, decision: RuntimeUserDecision): Promise<WorkflowState> {
@@ -218,11 +274,11 @@ export class WorkflowRuntimeOrchestrator {
 }
 
 export async function resumeWorkflow(input: ResumeWorkflowInput): Promise<WorkflowState | { selectionRequired: string[] }> {
-  return new WorkflowRuntimeOrchestrator(input.cwd).resumeWorkflow(input.topic, input.decision);
+  return new WorkflowRuntimeOrchestrator(input.cwd, { useDefaultAdapters: true }).resumeWorkflow(input.topic, input.decision);
 }
 
 export async function getStatus(cwd: string, topic?: string): Promise<WorkflowRuntimeStatus | { selectionRequired: string[] }> {
-  return new WorkflowRuntimeOrchestrator(cwd).getStatus(topic);
+  return new WorkflowRuntimeOrchestrator(cwd, { useDefaultAdapters: true }).getStatus(topic);
 }
 
 export async function invokeBrainstormingProRuntime(input: BrainstormingProToolInput): Promise<BrainstormingProToolResult> {
@@ -287,6 +343,12 @@ function artifactsForDecision(state: WorkflowState): VersionedArtifactRef[] {
 
 function reviewTargetForPhase(phase: WorkflowPhase): "design" | "plan" {
   return phase === "awaiting-design-review-decision" ? "design" : "plan";
+}
+
+function phaseAfterArtifactCommit(phase: WorkflowPhase): WorkflowPhase {
+  if (phase === "designing") return transition(phase, "awaiting-design-review-decision");
+  if (phase === "planning") return transition(phase, "awaiting-plan-review-decision");
+  return phase;
 }
 
 function isDecisionPhase(phase: WorkflowPhase): boolean {

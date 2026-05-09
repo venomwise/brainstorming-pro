@@ -1,0 +1,203 @@
+# Implementation Plan: Skill Phase Adapters
+
+## Overview
+
+This implementation plan is driven by the requirements in [requirements.md](requirements.md). The work is organized into seven phases: first establish the adapter result contract and runtime commit path, then add safe context builders, schemas, and prompts, then implement the design and planning adapters, then enforce the deferred execution boundary, and finally harden integration, security, documentation, and validation coverage. The order keeps runtime authority and validation foundations in place before child-agent-backed adapters can produce committable artifacts.
+
+The implementation uses the existing TypeScript ES module structure under `extensions/clarification-orchestrator/`, the existing `runtime/agent-execution/run-agent.ts` substrate, and the existing workflow artifact store. Tests use Node’s built-in test runner and should be placed under the existing unit, integration, and security test scopes.
+
+## Tasks
+
+- [✅] 1. Phase 1: Adapter result contract and runtime commit authority
+  - [✅] 1.1 Define adapter phase result types
+    - Modify `extensions/clarification-orchestrator/workflow/adapters/types.ts` to add `AdapterPhaseResult`, `ArtifactCommitRequest`, `AdapterBlockedResult`, `AdapterFailedResult`, and artifact commit item types.
+    - Include artifact kind, content, optional summary, metadata, blocked reason, diagnostics, and failed error fields matching the requirements contract.
+    - Keep or adapt the existing `PhaseAdapter` interface so adapters can return the new result shape without owning artifact writes or state truth.
+    - _Requirements: 1.1, 1.2, 1.3, 1.7_
+  - [✅] 1.2 Add runtime handling for artifact commit requests
+    - Modify `extensions/clarification-orchestrator/workflow/runtime.ts` to detect adapter `artifact-commit-request` results in `WorkflowRuntimeOrchestrator.runActivePhase`.
+    - Use `createWorkflowLayout()` and `writeVersionedArtifact()` from `extensions/clarification-orchestrator/workflow/artifact-store.ts` to allocate versions, calculate checksums, and update mirrors.
+    - Advance `designing` commits to `awaiting-design-review-decision` and `planning` commits to `awaiting-plan-review-decision` through workflow-safe transition logic.
+    - _Requirements: 1.4, 5.4, 6.5, 8.1, 8.3_
+  - [✅] 1.3 Persist runtime-owned events for adapter commits and phase outcomes
+    - Modify `extensions/clarification-orchestrator/workflow/runtime.ts` to call `appendWorkflowEvent()` from `extensions/clarification-orchestrator/workflow/events.ts` after artifact commit success and adapter phase completion where supported.
+    - Record blocked and failed adapter outcomes with diagnostic details without allowing adapters to append events directly.
+    - Ensure event details reference artifact refs and adapter metadata without storing unbounded child output.
+    - _Requirements: 1.4, 5.4, 6.5, 7.3, 8.7_
+  - [✅] 1.4 Enforce adapter blocked and failed semantics in runtime
+    - Modify `WorkflowRuntimeOrchestrator.runActivePhase` to persist blocked results as `phase: "blocked"` with recoverable diagnostics and failed results as `phase: "failed"` or the chosen recovery model with typed `lastError`.
+    - Ensure failed or blocked adapter results do not commit artifacts, skip gates, or advance to review/approval phases.
+    - Keep thrown adapter exceptions fail-closed with recoverable diagnostics.
+    - _Requirements: 1.2, 1.3, 7.3, 8.7_
+  - [✅]* 1.5 Write unit tests for runtime commit authority
+    - Add or update `tests/unit/workflow/runtime.test.ts` to verify artifact commit requests create versioned artifacts and mirrors and advance only to the correct review-decision phase.
+    - Test blocked and failed adapter results do not commit artifacts or advance workflow phases.
+    - Test adapters cannot advance past review or approval gates by returning direct state patches when using the new contract.
+    - _Requirements: 1.4, 1.5, 1.6, 8.1, 8.3, 8.7_
+
+- [✅] 2. Phase 2: Safe adapter context builders
+  - [✅] 2.1 Implement shared context builder module
+    - Create `extensions/clarification-orchestrator/workflow/adapters/context.ts` with `BrainstormingAdapterContext`, `SpecPlanAdapterContext`, and helper functions such as `buildBrainstormingAdapterContext()` and `buildSpecPlanAdapterContext()`.
+    - Include topic, run id, request, project root, topic directory, workflow metadata, and typed artifact content fields.
+    - Use `getWorkflowRuntimePaths()` and artifact-store path helpers instead of adapter-local arbitrary path resolution.
+    - _Requirements: 2.1, 2.7, 5.1, 6.2_
+  - [✅] 2.2 Add safe artifact ref content loading and checksum verification
+    - Implement helper functions in `workflow/adapters/context.ts` to resolve `VersionedArtifactRef.path` through `resolveWorkflowPath()` and verify file content with `checksum()`.
+    - Reject absolute paths, out-of-topic paths, missing files, mismatched checksums, and mismatched artifact kinds.
+    - Ensure all returned artifact content is plain string data inside typed context objects.
+    - _Requirements: 2.4, 2.6, 2.7_
+  - [✅] 2.3 Support brainstorming augment context
+    - In `buildBrainstormingAdapterContext()`, load `state.artifacts.design` or `state.contextDesignPath` only when it points to a safe existing workflow design artifact.
+    - Include `existingDesign` with ref and content when safe and available.
+    - Do not let augment context grant authority over approvals, review decisions, or state transitions.
+    - _Requirements: 2.1, 2.2, 5.2_
+  - [✅] 2.4 Enforce approved design context for planning
+    - In `buildSpecPlanAdapterContext()`, require `state.artifacts.design`, `state.gates.design`, and an approval artifact list containing the exact current design kind, version, path, and checksum.
+    - Verify review decision or skipped review status exists for the same latest design artifact before context construction succeeds.
+    - Return design approval metadata and approved design content for prompt generation.
+    - _Requirements: 2.3, 2.5, 6.1, 6.6, 8.5_
+  - [✅]* 2.5 Write context builder unit tests
+    - Add `tests/unit/workflow/adapter-context.test.ts` covering brainstorming context, augment existing design context, planning context, missing approval, stale approval version, checksum mismatch, absolute artifact paths, and path traversal attempts.
+    - Use temporary `specs/<topic>/.workflow/artifacts/` fixtures written through `writeVersionedArtifact()` where possible.
+    - _Requirements: 2.1, 2.2, 2.3, 2.4, 2.5, 2.6, 10.2_
+
+- [✅] 3. Phase 3: Structured output schemas and prompt templates
+  - [✅] 3.1 Implement adapter output schema module
+    - Create `extensions/clarification-orchestrator/workflow/adapters/schemas.ts` with `DesignDraftOutput`, `PlanDraftOutput`, `designDraftOutputSchema`, and `planDraftOutputSchema` compatible with `AgentOutputSchema<TOutput>`.
+    - Implement robust JSON parsing that accepts only the expected structured result object and rejects missing or wrongly typed fields.
+    - Export validation helpers for adapter-level markdown checks.
+    - _Requirements: 3.1, 3.4, 3.7_
+  - [✅] 3.2 Implement design markdown validation
+    - In `workflow/adapters/schemas.ts`, validate required design headings: `## Summary`, `## Goals`, `## Primary Users / Roles`, `## Non-Goals`, `## Context`, `## Proposed Solution`, `## Error Handling`, `## Testing`, and `## Open Questions`.
+    - Reject empty markdown, topic mismatches, generated requirements/tasks artifact sections when detectable, and claims that review or approval has completed.
+    - Keep validation deterministic and side-effect free.
+    - _Requirements: 3.1, 3.2, 3.3, 5.6_
+  - [✅] 3.3 Implement plan markdown validation
+    - In `workflow/adapters/schemas.ts`, validate non-empty requirements and tasks markdown, `## Tasks` presence, checkbox task lines, unchecked generated tasks, and traceability array shape.
+    - Reject pre-completed task checkboxes, premature execution instructions before plan approval when detectable, design modification instructions, and requirements/design revision requirements during execution.
+    - Keep validation deterministic and side-effect free.
+    - _Requirements: 3.4, 3.5, 3.6, 6.7_
+  - [✅] 3.4 Implement brainstorming prompt template module
+    - Create `extensions/clarification-orchestrator/workflow/adapters/prompts/brainstorming.ts` exporting `buildBrainstormingPrompt(context)` returning `{ systemPrompt, prompt }`.
+    - Include project context, user request, topic, design headings, output schema instructions, and instructions for assumptions, non-goals, risks, and open questions.
+    - Include explicit prohibitions against creating `requirements.md` or `tasks.md`, approving artifacts, claiming review completion, or writing unsuitable artifact markdown.
+    - _Requirements: 4.1, 4.2, 5.2_
+  - [✅] 3.5 Implement spec-plan prompt template module
+    - Create `extensions/clarification-orchestrator/workflow/adapters/prompts/spec-plan.ts` exporting `buildSpecPlanPrompt(context)` returning `{ systemPrompt, prompt }`.
+    - Include approved design content, design artifact version/path/checksum metadata, design approval metadata, requirements/tasks structure, traceability instructions, and output schema instructions.
+    - Include explicit prohibitions against executing tasks, changing the approved design, approving the plan, or producing checked tasks.
+    - _Requirements: 4.3, 4.4, 6.3_
+  - [✅]* 3.6 Write schema and prompt unit tests
+    - Add `tests/unit/workflow/adapter-schemas.test.ts` for valid and invalid design/plan outputs, topic mismatch, missing headings, empty markdown, pre-completed tasks, missing `## Tasks`, and premature execution wording.
+    - Add `tests/unit/workflow/adapter-prompts.test.ts` verifying required constraints, headings, metadata, and structured output instructions appear in generated prompts.
+    - _Requirements: 3.1, 3.2, 3.3, 3.4, 3.5, 3.6, 4.1, 4.2, 4.3, 4.4, 4.6, 10.1_
+
+- [✅] 4. Phase 4: Agent-backed BrainstormingPhaseAdapter
+  - [✅] 4.1 Replace placeholder brainstorming adapter with agent-backed implementation
+    - Modify `extensions/clarification-orchestrator/workflow/adapters/brainstorming.ts` to build `BrainstormingAdapterContext`, create prompts, and invoke an injectable `runAgent()` dependency with role `design-author`.
+    - Pass workflow context containing topic, run id, phase, project root, topic directory, and artifact refs.
+    - Use `designDraftOutputSchema` as the output schema and a provider-qualified model sourced from existing package configuration or a narrowly scoped adapter option.
+    - _Requirements: 5.1, 5.2, 9.3, 9.4_
+  - [✅] 4.2 Convert valid design child output to commit request
+    - In `brainstorming.ts`, validate `AgentRunResult<DesignDraftOutput>` status and output before returning an artifact commit request.
+    - Include a `design` artifact item with `output.designMarkdown` and summary plus metadata for assumptions, non-goals, risks, and open questions.
+    - Do not write artifacts, mirrors, events, approvals, decisions, or state directly inside the adapter.
+    - _Requirements: 1.1, 1.5, 5.3, 5.7_
+  - [✅] 4.3 Handle design child failures fail-closed
+    - In `brainstorming.ts`, map timed-out, failed, invalid-output, non-zero exit, and output-limit results to adapter failed results with retryability and diagnostics.
+    - Ensure missing output or markdown validation failure never creates an artifact commit request.
+    - Preserve Agent Execution Runtime safety options instead of reimplementing child launch logic.
+    - _Requirements: 3.7, 5.5, 5.6, 9.1, 9.2, 9.5, 9.6_
+  - [✅]* 4.4 Write BrainstormingPhaseAdapter unit tests
+    - Add `tests/unit/workflow/brainstorming-adapter.test.ts` using a fake `runAgent` to verify role `design-author`, phase `designing`, prompt/system prompt presence, workflow context, output schema use, and commit request contents.
+    - Test invalid child output, timeout, and non-zero failure produce failed results without commit requests.
+    - Test no decision, approval, event, state, or artifact files are written by the adapter itself.
+    - _Requirements: 5.1, 5.2, 5.3, 5.5, 5.6, 5.7, 10.3_
+
+- [✅] 5. Phase 5: Agent-backed SpecPlanPhaseAdapter
+  - [✅] 5.1 Replace placeholder spec-plan adapter with approved-design implementation
+    - Modify `extensions/clarification-orchestrator/workflow/adapters/spec-plan.ts` to build `SpecPlanAdapterContext`, create prompts, and invoke an injectable `runAgent()` dependency with role `plan-author`.
+    - Pass workflow context containing topic, run id, phase, project root, topic directory, and approved design artifact refs.
+    - Use `planDraftOutputSchema` as the output schema and the same provider-qualified model policy path used by the design adapter.
+    - _Requirements: 6.1, 6.2, 6.3, 9.3, 9.4_
+  - [✅] 5.2 Convert valid plan child output to commit request
+    - In `spec-plan.ts`, validate `AgentRunResult<PlanDraftOutput>` status and output before returning an artifact commit request.
+    - Include `requirements` and `tasks` artifact items using `output.requirementsMarkdown` and `output.tasksMarkdown`.
+    - Include metadata for traceability, assumptions, and risks without writing decisions, approvals, events, or state directly.
+    - _Requirements: 1.1, 1.5, 6.4, 6.7_
+  - [✅] 5.3 Enforce planning preconditions before child invocation
+    - Ensure `SpecPlanPhaseAdapter` relies on `buildSpecPlanAdapterContext()` so missing approval, stale approval, missing review decision/status, or checksum mismatch fails before `runAgent()` is called.
+    - Map precondition failures to blocked or failed adapter results according to runtime recovery semantics.
+    - Confirm the adapter does not execute tasks or mutate approved design content.
+    - _Requirements: 2.5, 6.1, 6.6, 6.7, 8.5_
+  - [✅] 5.4 Handle plan child failures fail-closed
+    - In `spec-plan.ts`, map timed-out, failed, invalid-output, non-zero exit, and output-limit results to adapter failed results with retryability and diagnostics.
+    - Ensure missing requirements/tasks markdown or plan validation failure never creates an artifact commit request.
+    - Preserve Agent Execution Runtime safety options instead of reimplementing child launch logic.
+    - _Requirements: 3.7, 6.7, 9.1, 9.2, 9.5, 9.6_
+  - [✅]* 5.5 Write SpecPlanPhaseAdapter unit tests
+    - Add `tests/unit/workflow/spec-plan-adapter.test.ts` using a fake `runAgent` to verify role `plan-author`, phase `planning`, prompt/system prompt presence, approved design context, output schema use, and requirements/tasks commit request contents.
+    - Test missing approval and stale approval do not invoke `runAgent()`.
+    - Test invalid child output, timeout, and non-zero failure produce failed results without commit requests.
+    - Test the adapter does not execute tasks, modify design files, or write decision/approval/state files.
+    - _Requirements: 6.1, 6.2, 6.3, 6.4, 6.6, 6.7, 10.4_
+
+- [✅] 6. Phase 6: Deferred SpecExecPhaseAdapter boundary
+  - [✅] 6.1 Replace spec-exec completion placeholder with blocked unavailable behavior
+    - Modify `extensions/clarification-orchestrator/workflow/adapters/spec-exec.ts` so `run()` returns a blocked/unavailable adapter result when controlled execution is not implemented.
+    - Remove behavior that accepts `{ done: true }` and transitions directly to `done`.
+    - Include a recovery message pointing to the future controlled execution adapter design without asking the LLM to execute the full plan.
+    - _Requirements: 7.1, 7.2, 7.3, 8.4_
+  - [✅] 6.2 Document future controlled execution contract in code comments or adapter metadata
+    - In `spec-exec.ts` or a small adjacent module, record that future execution must use a code-owned task loop plus LLM single-task worker model.
+    - State that code owns task parsing, next-task selection, optional mode, checkpoint selection, checkbox updates, stop conditions, evidence, and execution report persistence.
+    - State that the LLM must execute exactly one task at a time and must not update `tasks.md` progress markers.
+    - _Requirements: 7.4, 7.5, 7.6, 7.7_
+  - [✅]* 6.3 Write SpecExecPhaseAdapter boundary tests
+    - Add `tests/unit/workflow/spec-exec-adapter.test.ts` verifying execution returns blocked/unavailable, does not mark workflow `done`, and does not invoke `runAgent()` with the full `tasks.md`.
+    - Test runtime handling keeps the workflow recoverable and records diagnostics when execution is unavailable after plan approval.
+    - _Requirements: 7.1, 7.2, 7.3, 8.4, 10.5_
+
+- [✅] 7. Checkpoint - Verify adapter foundations and design/planning lifecycle
+  - Run `npm run typecheck` and the new unit tests for adapter types, runtime commit handling, context builders, schemas, prompts, brainstorming adapter, spec-plan adapter, and spec-exec boundary.
+  - Inspect `extensions/clarification-orchestrator/workflow/adapters/*.ts` and confirm no adapter writes `.workflow/approvals`, `.workflow/decisions`, `state.json`, or event logs directly.
+  - Confirm requirement coverage for 1.1-1.7, 2.1-2.7, 3.1-3.7, 4.1-4.6, 5.1-5.7, 6.1-6.7, and 7.1-7.7.
+  - Stop only if typecheck fails, schema/context tests fail, adapters bypass runtime authority, child safety requirements are not testable, or implementation would require changing approved requirements.
+
+- [✅] 8. Phase 8: Runtime integration, security tests, and docs alignment
+  - [✅] 8.1 Wire default adapter registry into runtime command path
+    - Modify `extensions/clarification-orchestrator/workflow/adapters/registry.ts`, `extensions/clarification-orchestrator/workflow/runtime.ts`, and `extensions/clarification-orchestrator/commands/brainstorm-pro.ts` as needed so `/brainstorm-pro` uses real default adapters while tests can inject fakes.
+    - Preserve existing command names and public CLI options.
+    - Ensure no new generic subagent command, public subagent tool, arbitrary orchestration API, or background runner is exposed.
+    - _Requirements: 8.1, 8.2, 8.3, 9.7_
+  - [✅] 8.2 Add integration tests for generated design and plan artifacts
+    - Update `tests/integration/workflow-runtime.test.ts` or add `tests/integration/skill-phase-adapters.test.ts` using fake child execution to cover start producing versioned `design.md` and stopping at `awaiting-design-review-decision`.
+    - Cover design review skip plus design approval producing versioned `requirements.md` and `tasks.md` and stopping at `awaiting-plan-review-decision`.
+    - Verify no planning before design approval and no execution before plan approval.
+    - _Requirements: 5.4, 6.5, 8.1, 8.2, 8.3, 8.5, 8.6, 10.6_
+  - [✅] 8.3 Add malformed child output and recovery integration tests
+    - Add integration coverage where fake child returns malformed design or plan output and the runtime enters blocked or failed state without committing artifacts.
+    - Verify resume or retry behavior follows the chosen recovery model and does not skip review or approval gates.
+    - _Requirements: 3.7, 5.5, 6.7, 8.7, 10.6_
+  - [✅] 8.4 Add security tests for adapter and child boundaries
+    - Add or update tests under `tests/security/` to verify adapters do not write approvals, decisions, state truth, or out-of-topic artifacts.
+    - Verify child launch still includes `--no-session`, `--no-skills`, role restrictions, recursion guard environment, provider-qualified model validation, and bounded output limits through existing Agent Execution Runtime paths.
+    - Verify no generic subagent public API, arbitrary `single`/`parallel`/`chain`/`async` API, or background async runner is introduced.
+    - _Requirements: 1.5, 1.6, 9.1, 9.2, 9.3, 9.4, 9.5, 9.6, 9.7, 10.7_
+  - [✅]* 8.5 Update documentation and documentation alignment tests
+    - Update `README.md` and workflow docs, if present, to describe real design and planning phase adapters, generated artifact layout, gate stopping points, and deferred execution behavior.
+    - Update `tests/unit/docs/workflow-runtime.test.ts` and related documentation alignment tests if public phase names, artifact behavior, or adapter boundaries changed.
+    - Do not document a generic subagent API or full execution support.
+    - _Requirements: 8.1, 8.3, 8.4, 10.8_
+  - [✅]* 8.6 Run final validation suite
+    - Run `npm run typecheck`, `npm test`, and `npm run validate-package`.
+    - Inspect generated or fixture artifacts to ensure no local config files or unintended run artifacts are committed.
+    - Summarize any intentionally deferred execution work for the future `controlled-spec-exec-adapter` spec.
+    - _Requirements: 10.1, 10.2, 10.3, 10.4, 10.5, 10.6, 10.7, 10.8_
+
+## Notes
+
+- Tasks marked with `*` are optional and can be skipped for an MVP, but they are strongly recommended before merging because this spec changes workflow authority and child-agent trust boundaries.
+- Each task references one or more requirement IDs for traceability.
+- Keep task numbering stable so requirement references stay valid.
+- Do not implement full task execution in this spec; `SpecExecPhaseAdapter` must remain blocked/unavailable until a follow-up controlled execution design is approved.

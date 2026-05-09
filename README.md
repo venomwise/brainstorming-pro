@@ -40,6 +40,14 @@ The runtime pauses at mandatory gates:
 
 Blocked, failed, and terminal states do not auto-advance on resume.
 
+## Skill phase adapters
+
+The `designing` and `planning` phases now use workflow-owned Skill Phase Adapters. `BrainstormingPhaseAdapter` invokes the controlled Agent Execution Runtime with the `design-author` role to draft candidate `design.md` content, then returns an artifact commit request; the runtime performs the actual versioned commit and stops at `awaiting-design-review-decision`. After exact design review/approval gates pass, `SpecPlanPhaseAdapter` invokes the `plan-author` role to draft `requirements.md` and `tasks.md`, returns a commit request, and the runtime stops at `awaiting-plan-review-decision`.
+
+Adapters compile package-owned methodology into prompt templates and structured output schemas. Child Pi processes remain constrained by `--no-session`, `--no-skills`, role policy, provider-qualified model validation, recursion guard, and bounded output capture. Adapters do not write approvals, review decisions, event logs, or `state.json` directly.
+
+`SpecExecPhaseAdapter` is intentionally unavailable until a follow-up controlled execution adapter lands. When reached, it blocks with diagnostics instead of handing the full `tasks.md` to an LLM or marking the workflow done.
+
 ## Runtime artifact layout
 
 ```text

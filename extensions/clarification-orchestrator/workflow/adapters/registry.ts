@@ -1,14 +1,34 @@
-import { brainstormingAdapter } from "./brainstorming.ts";
-import { specPlanAdapter } from "./spec-plan.ts";
+import { createBrainstormingAdapter } from "./brainstorming.ts";
+import { createSpecPlanAdapter } from "./spec-plan.ts";
 import { specExecAdapter } from "./spec-exec.ts";
-import { createAdapterRegistry } from "./types.ts";
+import { createAdapterRegistry, type PhaseAdapter } from "./types.ts";
+import type { WorkflowAdapter } from "../runtime.ts";
+import type { WorkflowState } from "../types.ts";
 import { designReviewAdapter } from "./design-review.ts";
 import { planReviewAdapter } from "./plan-review.ts";
 import { executionReviewAdapter } from "./execution-review.ts";
 
+export function defaultWorkflowAdapters(projectRoot: string, model = process.env.BRAINSTORMING_PRO_AGENT_MODEL ?? "openai:gpt-4o-mini") {
+  return {
+    designing: asWorkflowAdapter(createBrainstormingAdapter({ projectRoot, model })),
+    planning: asWorkflowAdapter(createSpecPlanAdapter({ projectRoot, model })),
+    executing: asWorkflowAdapter(specExecAdapter),
+  };
+}
+
+function asWorkflowAdapter(adapter: PhaseAdapter<WorkflowState>): WorkflowAdapter {
+  return {
+    async run(state) {
+      const output = await adapter.run(state, state);
+      await adapter.validate(output, state);
+      return adapter.commit(output, state);
+    },
+  };
+}
+
 export const defaultAdapterRegistry = createAdapterRegistry([
-  brainstormingAdapter,
-  specPlanAdapter,
+  createBrainstormingAdapter({ projectRoot: process.cwd(), model: process.env.BRAINSTORMING_PRO_AGENT_MODEL ?? "openai:gpt-4o-mini" }),
+  createSpecPlanAdapter({ projectRoot: process.cwd(), model: process.env.BRAINSTORMING_PRO_AGENT_MODEL ?? "openai:gpt-4o-mini" }),
   specExecAdapter,
   designReviewAdapter,
   planReviewAdapter,
