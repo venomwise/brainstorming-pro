@@ -2,7 +2,7 @@
 
 ## Summary
 
-本文档记录 Brainstorming Pro 颠覆式重构的全局设计思路、核心架构决策、长期目标和分阶段 spec 拆分。它不是某一个具体子系统的实现设计，而是后续所有重构 spec 的上位约束文档，用于确保 `workflow-runtime-orchestrator`、agent execution runtime、multi-agent review panel、skill phase adapters、plan/execution review 等后续设计不会偏离总体方向。全局目标是把 Brainstorming Pro 从一组三段式手动 slash command/skill 流程，升级为一个由代码强制状态机驱动、可恢复、可审计、支持多 Agent 交叉评审的复杂需求澄清与稳定实现平台。
+本文档记录 Brainstorming Pro 颠覆式重构的全局设计思路、核心架构决策、长期目标和分阶段 spec 拆分。它不是某一个具体子系统的实现设计，而是后续所有重构 spec 的上位约束文档，用于确保 `workflow-runtime-orchestrator`、agent execution runtime、multi-agent review panel、skill phase adapters、plan/execution review 等后续设计不会偏离总体方向。全局目标是巩固当前以 `/brainstorm-pro` 为唯一公开入口的 runtime-first 架构，把需求澄清、artifact 生成、review/approval gate、planning、execution 和 execution review 都收敛到代码强制状态机中，形成可恢复、可审计、支持多 Agent 交叉评审的复杂需求澄清与稳定实现平台。
 
 ## Goals
 
@@ -12,7 +12,7 @@
 - 规定子 spec 之间的依赖关系、边界和落地顺序。
 - 明确哪些能力应由代码强制，哪些能力可以由 LLM/agent 负责。
 - 明确用户确认 gate、artifact/version/event store、phase adapter、multi-agent review 的整体关系。
-- 为后续 `spec-plan` 和实现阶段提供全局验收标准。
+- 为后续 planning/execution phase adapter 和实现阶段提供全局验收标准。
 
 ## Primary Users / Roles
 
@@ -28,41 +28,63 @@
 - 本文档不包含完整实现任务列表；任务应由各子 spec 的 `requirements.md` 和 `tasks.md` 承担。
 - 本文档不详细设计 reviewer prompt、agent schema、subagent launch args 或 runtime API。
 - 本文档不要求一次性完成所有重构。
-- 本文档不追求兼容现有 `/clarify -> /spec-plan -> /spec-exec` 的内部结构；当前项目仍处于可破坏式重构阶段，应优先选择长期更稳的架构。
+- 本文档不设计多入口命令编排；当前项目以 `/brainstorm-pro` 作为唯一公开 workflow 入口，仍处于可破坏式重构阶段，应优先选择长期更稳的架构。
 
 ## Context
 
-Brainstorming Pro 当前围绕如下生命周期工作：
+Brainstorming Pro 当前采用单一 `/brainstorm-pro` workflow intent interface。
+
+当前 public command surface：
 
 ```text
-/clarify <request> -> /spec-plan <topic> -> /spec-exec <topic>
+/brainstorm-pro "<request>"
+/brainstorm-pro "<request>" --topic <existing-topic>
+/brainstorm-pro --resume [topic]
+/brainstorm-pro --status [topic]
 ```
 
-当前已有较成熟的能力：
+当前已落地的基础包括：
 
-- `brainstorming`：通过协作式澄清把想法转为设计。
-- `spec-plan`：从设计生成 requirements 和 tasks。
-- `spec-exec`：根据 tasks 稳定执行。
-- `/clarify` 相关实现：围绕 durable artifacts、reviewers、状态恢复和设计 approval 已有实践。
+- 单一 `/brainstorm-pro` command handler；
+- request-to-topic proposal；
+- strict topic validation；
+- runtime state schema；
+- persisted run state under `specs/<topic>/.workflow/runs/<run-id>/state.json`；
+- review decision / approval gate phase names；
+- explicit `skip | minimal | full` review decision model；
+- design/plan approval decision model；
+- `blocked` / `failed` fail-closed behavior；
+- package-owned `brainstorming-pro`、`spec-plan-pro`、`spec-exec-pro` skill methodology docs；
+- planning/execution/review phase adapter skeletons。
 
-但当前核心痛点是：
+当前尚未完整落地或仍为 placeholder 的能力包括：
+
+- phase adapters 实际调用 LLM/skill/agent 生成 artifacts；
+- durable artifact version commit 的完整 runtime 集成；
+- append-only event log 的完整 runtime 写入；
+- multi-agent design/plan/execution review panel；
+- agent execution runtime；
+- live TUI progress；
+- 真正的 planning/execution 自动化。
+
+因此当前核心痛点是：
 
 ```text
-这三个成熟能力之间缺少一个顶层 workflow runtime。
+单一 `/brainstorm-pro` runtime 骨架已经存在，但真实 phase adapter、artifact/event 集成、agent execution 和 multi-agent review 仍需补齐。
 ```
 
-对于复杂需求，用户仍然需要手动：
+对于复杂需求，系统目标是由 runtime 驱动完整自动化：
 
-1. 启动 brainstorming 或 clarify。
-2. 检查 `design.md` 是否充分。
-3. 手动开启多个 agent 从产品、架构、风险、测试等角度评审 design。
-4. 汇总 reviewer 反馈。
-5. 处理冲突、修订 design。
-6. 决定何时进入 planning。
-7. 手动运行 spec-plan。
-8. 检查 requirements/tasks 是否覆盖 design。
-9. 手动运行 spec-exec。
-10. 检查执行是否偏离 design/tasks。
+1. 通过 `/brainstorm-pro` 表达需求意图。
+2. runtime 创建 topic/run state 并进入 designing。
+3. 后续 BrainstormingPhaseAdapter 生成或修订 `design.md`。
+4. runtime 暂停在 design review decision / approval gate。
+5. 后续 review panel 从产品、架构、风险、测试等角度评审 design。
+6. runtime 记录用户 review mode、approval 或 revision 决策。
+7. 后续 SpecPlanPhaseAdapter 生成 requirements/tasks。
+8. runtime 暂停在 plan review decision / approval gate。
+9. 后续 SpecExecPhaseAdapter 执行 approved tasks。
+10. 后续 ExecutionReviewPanel 检查执行是否偏离 approved artifacts。
 
 因此，全局重构的目标不是简单增加一个 command 或一个通用 subagent tool，而是建立一个稳定的需求交付工作流平台：
 
@@ -84,10 +106,10 @@ Brainstorming Pro 当前围绕如下生命周期工作：
 ### Key Discoveries
 
 - 项目的核心价值不是 slash command 本身，而是“多 Agent 交叉评审来澄清复杂需求并稳定实现”。
-- `brainstorming`、`spec-plan`、`spec-exec` 已经是有价值的成熟能力，应作为 workflow phase 被复用，而不是被简单丢弃。
-- 最大架构缺口是缺少统一的 workflow runtime 来强制状态迁移、保存 artifacts、记录 events、管理 approval gates 和 resume。
+- `brainstorming`、`spec-plan`、`spec-exec` skill 的方法论应作为 workflow phase adapter 的行为约束被吸收，由 runtime 统一调度。
+- 最大架构缺口是已有 runtime skeleton，但还缺少真实 phase adapter、artifact/event 集成、agent execution runtime 和 review panel。
 - 对复杂需求来说，`design.md` 的可信度非常关键。它不应由单个 agent 一次生成后直接进入 planning，而应经过多 Agent review、triage 和必要 revision。
-- 不能依赖父 LLM 通过 prompt 自觉遵循 `/clarify -> /spec-plan -> /spec-exec`。父 LLM 可以表达意图，但状态迁移必须由代码强制。
+- 不能依赖父 LLM 通过 prompt 自觉遵循生命周期，也不能让父 LLM 直接推进 planning/execution。父 LLM 可以表达意图，但状态迁移必须由代码强制。
 - 通用 `subagent` tool 可以作为底层参考，但不应成为顶层产品抽象。Brainstorming Pro 的核心抽象应是 workflow，而不是任意委派。
 - Approval gate 不能交给 agent 自动通过。采用“全自动推进非决策阶段，但在 review mode decision、design approval 和 plan approval 等用户决策点暂停”的交互模式。
 - 用户应先审阅第一版 design/plan artifact，再通过统一 `--resume` 入口选择 review 深度：`skip`、`minimal` 或未来的 `full`。
@@ -229,7 +251,7 @@ plan approval gate:
 
 #### 3. Phase Adapters
 
-将现有成熟能力包装为 workflow phase，而不是让用户手动调用。
+将当前 phase adapter skeleton 落实为真正的 workflow phase，而不是要求用户手动串联底层流程。当前 adapter 名称已经保留在 runtime 结构中，但多数仍是 placeholder/skeleton，后续 spec 需要补齐实际 artifact 生成、执行和验证能力。
 
 目标 adapters：
 
@@ -434,7 +456,7 @@ specs/agent-execution-runtime/design.md
 specs/skill-phase-adapters/design.md
 ```
 
-定位：把 `brainstorming`、`spec-plan`、`spec-exec` 封装为 workflow phases。
+定位：把 package-owned `brainstorming`、`spec-plan`、`spec-exec` skill 的方法论和当前 adapter skeleton 落实为 workflow-owned phase adapters。该 spec 只设计 runtime-owned phase 行为，不新增独立 public command surface。
 
 包含：
 
@@ -748,7 +770,7 @@ Reviewer 输出 findings。Design/task 修改应由 revision phase 或 adapter �
 
 这些问题应在后续子 spec 中解决，而不是在本文档中一次性定死：
 
-1. `brainstorming`、`spec-plan`、`spec-exec` skill adapter 应直接调用内部模块，还是通过 isolated child Pi process 调用？
+1. `brainstorming-pro`、`spec-plan-pro`、`spec-exec-pro` phase adapter 应直接调用内部模块，还是通过 isolated child Pi process 调用？
 2. Multi-agent review 的默认 reviewer 数量和角色是否可配置？
 3. Review triage 是单独 agent，还是 runtime deterministic merge + optional agent summary？
 4. Design revision loop 是否自动执行，还是遇到 blocking finding 后先询问用户？
@@ -757,7 +779,8 @@ Reviewer 输出 findings。Design/task 修改应由 revision phase 或 adapter �
 7. 是否需要 background async runner？如果需要，应在 workflow runtime 稳定后单独设计。
 8. 是否公开 Pi tool interface？如果公开，如何避免父 LLM 绕过 workflow command/gate？
 9. 是否支持从 `events.jsonl` 自动重建损坏的 `state.json`？
-10. 当前已有 `/clarify`、`/spec-plan`、`/spec-exec` 是否保留为低层命令，还是最终被 `/brainstorm-pro` 取代？
+
+Planning 和 execution 行为必须通过 runtime phases/adapters 暴露，并由 `/brainstorm-pro` runtime 统一触发、校验和持久化。
 
 ## Recommended Spec Order
 
