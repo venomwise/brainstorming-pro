@@ -245,7 +245,6 @@ export class WorkflowRuntimeOrchestrator {
   private async applyDecision(state: WorkflowState, decision: RuntimeUserDecision): Promise<WorkflowState> {
     if (decision.type === "review-mode") {
       if (state.phase !== "awaiting-design-review-decision" && state.phase !== "awaiting-plan-review-decision") return state;
-      if (decision.mode === "full") return { ...state, reviewStatus: { ...state.reviewStatus, [reviewTargetForPhase(state.phase)]: { target: reviewTargetForPhase(state.phase), mode: "full", status: "unavailable", artifacts: artifactsForDecision(state), reason: "full-review-unavailable", completedAt: new Date().toISOString() } }, updatedAt: new Date().toISOString() };
       const target = reviewTargetForPhase(state.phase);
       const reviewDecision: ReviewDecisionRef = { id: `${target}-${Date.now()}`, target, mode: decision.mode, artifacts: artifactsForDecision(state), selectedBy: decision.user, selectedAt: new Date().toISOString(), path: `.workflow/decisions/${target}.json` };
       const to = state.phase === "awaiting-design-review-decision" ? (decision.mode === "skip" ? "awaiting-design-approval" : "design-review") : (decision.mode === "skip" ? "awaiting-plan-approval" : "plan-review");

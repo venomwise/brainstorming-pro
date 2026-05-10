@@ -23,6 +23,10 @@ test("README documents runtime commands, gates, and layout", async () => {
     "artifacts/",
     "decisions/",
     "approvals/",
+    "reviews/",
+    "review-run.json",
+    "readiness.json",
+    "Review readiness is not the same as approval",
   ]) {
     assert.ok(readme.includes(expected), `README should include ${expected}`);
   }

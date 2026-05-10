@@ -33,8 +33,8 @@ intake
 
 The runtime pauses at mandatory gates:
 
-- `awaiting-design-review-decision` — inspect the candidate design and choose `skip`, `minimal`, future `full`, revise, or exit. `skip` is recorded explicitly with `reason = "user-selected-skip"`; unavailable `full` is reported without downgrading.
-- `awaiting-design-approval` — approve the exact reviewed/skipped design artifact before planning can start, request revision, show status, or exit.
+- `awaiting-design-review-decision` — inspect the candidate design and choose `skip`, `minimal`, future `full`, revise, or exit. `skip` is recorded explicitly with `reason = "user-selected-skip"`; unavailable `full` is reported without downgrading. `minimal` runs a real workflow-owned review panel and writes a topic-scoped review ledger.
+- `awaiting-design-approval` — approve the exact reviewed/skipped design artifact before planning can start, request revision, show status, or exit. Review readiness is not the same as approval.
 - `awaiting-plan-review-decision` — inspect current `requirements.md` and `tasks.md` refs and choose plan review depth.
 - `awaiting-plan-approval` — approve exact requirements/tasks refs before execution can start.
 
@@ -65,6 +65,13 @@ specs/<topic>/
     approvals/
       design-approval.json
       plan-approval.json
+    reviews/
+      design/
+        <review-run-id>/
+          review-run.json
+          reviewer-results/
+          aggregated-findings.json
+          readiness.json
     runs/<run-id>/
       state.json
 ```

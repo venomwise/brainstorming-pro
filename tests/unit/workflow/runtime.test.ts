@@ -48,13 +48,14 @@ test("renders review decision and applies skip", async () => {
   assert.equal("phase" in advanced && advanced.phase, "awaiting-design-approval");
 });
 
-test("full review remains unavailable at decision gate", async () => {
+test("full review decision routes to design-review for explicit adapter handling", async () => {
   const cwd = await tempProject();
   const state = createInitialWorkflowState({ topic: "my-topic", request: "Build", runId: "run-1" });
   await saveWorkflowState(cwd, { ...state, phase: "awaiting-design-review-decision", artifacts: { design: designRef } });
   const result = await new WorkflowRuntimeOrchestrator(cwd).resumeWorkflow("my-topic", { type: "review-mode", mode: "full", user: "tester" });
-  assert.equal("phase" in result && result.phase, "awaiting-design-review-decision");
-  assert.equal("reviewStatus" in result && result.reviewStatus.design?.status, "unavailable");
+  assert.equal("phase" in result && result.phase, "design-review");
+  assert.equal("reviewDecisions" in result && result.reviewDecisions.design?.mode, "full");
+  assert.equal("reviewStatus" in result && result.reviewStatus.design, undefined);
 });
 
 test("approval advances design gate to planning", async () => {

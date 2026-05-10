@@ -1,20 +1,48 @@
 import type { PhaseAdapter } from "./types.ts";
-import type { ReviewPhaseStatus, WorkflowState } from "../types.ts";
+import type { WorkflowState, ReviewPhaseStatus } from "../types.ts";
+import { runDesignReviewPanel } from "./design-review/panel.ts";
+import type { AgentBackedAdapterOptions } from "./agent-backed.ts";
 
-export const designReviewAdapter: PhaseAdapter<ReviewPhaseStatus, ReviewPhaseStatus> = {
+export function createDesignReviewAdapter(options: AgentBackedAdapterOptions): PhaseAdapter<WorkflowState, ReviewPhaseStatus> {
+  return {
   name: "design-review",
   phase: "design-review",
   allowedFrom: ["design-review"],
   requiredArtifacts: ["design"],
-  run(input) {
-    if (input.mode === "full") return { ...input, status: "unavailable", reason: "full-review-unavailable" };
-    if (input.mode === "skip") return { ...input, status: "skipped", reason: "user-selected-skip" };
-    return input;
+  async run(state) {
+    const result = await runDesignReviewPanel(state, options);
+    return {
+      target: "design",
+      mode: result.mode,
+      status: result.status,
+      artifacts: [result.designRef],
+      ...(result.status === "skipped" ? { reason: result.reason } : {}),
+      ...(result.status === "unavailable" ? { reason: result.unavailableReason } : {}),
+      ...(result.status === "failed" && result.error ? { reason: result.error.message } : {}),
+      completedAt: new Date().toISOString(),
+    };
   },
   validate(output) {
-    if (output.mode === "minimal" && output.status !== "passed" && output.status !== "blocked" && output.status !== "failed") throw new Error("Minimal design review must return passed, blocked, or failed.");
+    if (output.target !== "design") throw new Error("Design review output must target design.");
+    if (!(["skip", "minimal", "full"] as const).includes(output.mode)) throw new Error("Design review mode is invalid.");
+    if (!["skipped", "passed", "blocked", "failed", "unavailable"].includes(output.status)) throw new Error("Design review status is invalid.");
   },
-  commit(output, state: WorkflowState) {
-    return { ...state, phase: output.status === "passed" || output.status === "skipped" ? "awaiting-design-approval" : state.phase, reviewStatus: { ...state.reviewStatus, design: output } };
+  commit(output, state) {
+    const phase = output.status === "skipped" || output.status === "passed" ? "awaiting-design-approval" : output.status === "failed" ? "failed" : "blocked";
+    return {
+      ...state,
+      phase,
+      reviewStatus: {
+        ...state.reviewStatus,
+        design: output,
+      },
+      updatedAt: new Date().toISOString(),
+    };
   },
 };
+}
+
+export const designReviewAdapter: PhaseAdapter<WorkflowState, ReviewPhaseStatus> = createDesignReviewAdapter({
+  projectRoot: process.cwd(),
+  model: process.env.BRAINSTORMING_PRO_AGENT_MODEL ?? "openai:gpt-4o-mini",
+});
