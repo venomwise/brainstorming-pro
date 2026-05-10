@@ -77,7 +77,7 @@ test("full reviewer validation rejects lifecycle mutation directives and finding
   );
 });
 
-test("full review failure cannot fallback to minimal", async () => {
+test("full review partial failure cannot fallback to minimal", async () => {
   const { cwd, state } = await fixture();
   const seenRoles: string[] = [];
   const runAgent: RunAgentFunction = async <TOutput>(request: AgentRunRequest<TOutput>) => {
@@ -111,7 +111,8 @@ test("full review failure cannot fallback to minimal", async () => {
   };
 
   const result = await runDesignReviewPanel(state, { projectRoot: cwd, model: "test:model", runAgent });
-  assert.equal(result.status, "failed");
+  assert.equal(result.status, "partial");
+  assert.equal(result.readiness.status, "incomplete-review");
   assert.equal(seenRoles.includes("minimal-reviewer"), false);
   assert.deepEqual(seenRoles, resolveFullDesignReviewerSet().map((definition) => definition.role));
 });

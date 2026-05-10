@@ -33,12 +33,12 @@ intake
 
 The runtime pauses at mandatory gates:
 
-- `awaiting-design-review-decision` — inspect the candidate design and choose `skip`, `minimal`, `full`, revise, or exit. `skip` is recorded explicitly with `reason = "user-selected-skip"`; `minimal` runs a lightweight workflow-owned review, and `full` runs the complete five-role design reviewer pack (Product, Architecture, Risk/Security, Testing, and Scope/Simplicity) by default. Reviewer subset selection, retry, and accept-incomplete behavior are deferred to the later design-review execution-control work; no review mode is silently downgraded.
+- `awaiting-design-review-decision` — inspect the candidate design and choose `skip`, `minimal`, `full`, revise, or exit. `skip` is recorded explicitly with `reason = "user-selected-skip"`; `minimal` runs a lightweight workflow-owned review, and `full` runs the complete five-role design reviewer pack (Product, Architecture, Risk/Security, Testing, and Scope/Simplicity) by default. Full design review may bind a user-selected subset of those package-owned reviewers to the exact design artifact; invalid, empty, duplicate, minimal, unknown, stale, or unregistered selections are rejected before a review run is created. No review mode is silently downgraded.
 - `awaiting-design-approval` — approve the exact reviewed/skipped design artifact before planning can start, request revision, show status, or exit. Review readiness is not the same as approval.
 - `awaiting-plan-review-decision` — inspect current `requirements.md` and `tasks.md` refs and choose plan review depth.
 - `awaiting-plan-approval` — approve exact requirements/tasks refs before execution can start.
 
-Blocked, failed, and terminal states do not auto-advance on resume.
+Blocked, failed, and terminal states do not auto-advance on resume. A partial full design review is reported as blocked with `reason = "incomplete-design-review"`, `status = "partial"`, and readiness `incomplete-review`; it is not a passed review. Runtime status may expose recovery actions such as retrying failed reviewers, explicitly accepting a safe incomplete review, replacing reviewer selection, or viewing the review ledger. Accept incomplete is a separate explicit user decision and still only moves the workflow to the design approval gate; it never approves design or starts planning.
 
 ## Skill phase adapters
 
@@ -71,13 +71,19 @@ specs/<topic>/
           review-run.json
           reviewer-results/
             minimal-reviewer.json | product-reviewer.json | architecture-reviewer.json | risk-security-reviewer.json | testing-reviewer.json | scope-simplicity-reviewer.json
+          attempts/
+            attempt-001/
+              attempt.json
+              reviewer-results/<role>.json
+          coverage.json
           aggregated-findings.json
           readiness.json
+          accept-incomplete-decision.json
     runs/<run-id>/
       state.json
 ```
 
-Runtime artifact references include kind, version, relative path, timestamp, and SHA-256 checksum. Review decisions and approvals are rejected if their referenced versions are stale, missing, outside the topic directory, empty, or checksum-mismatched.
+Runtime artifact references include kind, version, relative path, timestamp, and SHA-256 checksum. Review decisions, reviewer retry attempts, accept-incomplete decisions, and approvals are rejected if their referenced versions are stale, missing, outside the topic directory, empty, or checksum-mismatched. Failed reviewer retry preserves the original review run id, stable selected reviewer set, and exact design artifact binding while updating latest effective reviewer results only after durable ledger and event writes.
 
 ## Security model
 

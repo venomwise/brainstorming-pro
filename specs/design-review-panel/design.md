@@ -14,10 +14,11 @@
 - Reviewer 只能输出结构化 findings，不能修改 `design.md`、workflow state、decision 或 approval。
 - Review panel 只能返回 review result，由 workflow runtime 执行 state transition、event append 和 gate enforcement。
 - 持久化 review ledger，支持 audit、status、resume、future TUI 和后续 triage/revision 子 spec。
-- 定义后续子 spec 的 extension points：
+- 定义后续子 spec 的 extension points，并与全局 refactor roadmap 保持一致：
   - Spec 5.1 `design-reviewer-role-pack`；
-  - Spec 5.2 `design-review-triage-and-readiness`；
-  - Spec 5.3 `design-revision-loop`。
+  - Spec 5.2 `design-review-execution-control`；
+  - Spec 5.3 `design-review-triage-and-readiness`；
+  - Spec 5.4 `design-revision-loop`。
 - 保持与 `workflow-runtime-orchestrator`、`agent-execution-runtime` 和 `skill-phase-adapters` 的边界清晰。
 
 ## Primary Users / Roles
@@ -33,8 +34,9 @@
 
 - 不实现完整 `full` reviewer role pack；该能力由 Spec 5.1 `design-reviewer-role-pack` 完成。
 - 不实现五个 reviewer 的完整 prompt/system prompt。
-- 不实现 advanced triage、冲突归并、must-fix/should-fix/note 精细分类；该能力由 Spec 5.2 完成。
-- 不实现 automatic design revision loop；该能力由 Spec 5.3 完成。
+- 不实现 reviewer subset、partial-success aggregation、failed reviewer retry 或 accept-incomplete review；这些能力由 Spec 5.2 `design-review-execution-control` 完成。
+- 不实现 advanced triage、冲突归并、must-fix/should-fix/note 精细分类；该能力由 Spec 5.3 `design-review-triage-and-readiness` 完成。
+- 不实现 automatic design revision loop；该能力由 Spec 5.4 `design-revision-loop` 完成。
 - 不实现 plan review panel。
 - 不实现 execution review panel。
 - 不新增 public command surface。
@@ -90,8 +92,8 @@ awaiting-design-approval | blocked | failed
 - `full` review 是长期核心能力，但首版应先稳定 foundation。Spec 5 定义 `full` contract，Spec 5.1 实现 full reviewer role pack。
 - Review 必须绑定 exact design artifact version 和 checksum，否则 design 被修改后旧 review 可能被错误复用。
 - Reviewer output 必须视为 untrusted；只有通过 schema validation 和 finding normalization 后才能写入 ledger。
-- Basic readiness 可以先 deterministic：存在 blocking finding 则 blocked，否则 passed。复杂 deduplication、conflict resolution 和 must-fix/should-fix 分层应拆到 Spec 5.2。
-- Blocking finding 后是否自动 revision 是独立复杂问题，应通过 Spec 5.3 处理；Spec 5 只返回 blocked 和 revision hook input。
+- Basic readiness 可以先 deterministic：存在 blocking finding 则 blocked，否则 passed。reviewer subset、partial aggregation、failed reviewer retry 和 accept-incomplete review 应拆到 Spec 5.2；复杂 deduplication、conflict resolution 和 must-fix/should-fix 分层应拆到 Spec 5.3。
+- Blocking finding 后是否自动 revision 是独立复杂问题，应通过 Spec 5.4 处理；Spec 5 只返回 blocked 和 revision hook input。
 - Review ledger 应独立于 workflow state truth。State 可引用 review status / latest review run，但完整 reviewer output 和 aggregate result 应在 `.workflow/reviews/design/<review-run-id>/` 中持久化。
 
 ### Scope Decisions
@@ -477,7 +479,7 @@ Responsibilities:
 - Produce summary.
 - Preserve all raw normalized findings.
 
-Spec 5 deliberately avoids advanced deduplication/conflict resolution; Spec 5.2 enhances this.
+Spec 5 deliberately avoids reviewer execution-control semantics and advanced deduplication/conflict resolution. Spec 5.2 adds reviewer selection, partial aggregation, retry, and accept-incomplete behavior; Spec 5.3 enhances deduplication/conflict handling and readiness refinement.
 
 Suggested aggregate schema:
 
@@ -682,7 +684,8 @@ For `minimal`:
 
 For future `full`:
 
-- Spec 5.1 defines whether partial reviewer failure fails the whole review or blocks with partial diagnostics. Spec 5 requires no silent success when required reviewer fails.
+- Spec 5.1 makes the complete five-role full review executable and fails closed when a required reviewer fails.
+- Spec 5.2 adds controlled partial-success aggregation, failed reviewer retry, and explicit accept-incomplete semantics. Spec 5 requires no silent success when required reviewer fails.
 
 ### 5. Invalid reviewer output
 
@@ -699,7 +702,7 @@ If aggregation includes one or more blocking findings:
 - review status = blocked;
 - readiness = blocked;
 - runtime must not move to `awaiting-design-approval` as if passed;
-- future Spec 5.3 may consume findings as revision input.
+- future Spec 5.3 may triage findings into readiness/refinement reports, and Spec 5.4 may consume them as revision input.
 
 ### 7. Ledger write failure
 

@@ -36,6 +36,9 @@ test("allows safe blocked and failed recovery boundaries", () => {
   assert.equal(canTransition("planning", "failed"), true);
   assert.equal(canTransition("blocked", "planning"), true);
   assert.equal(canTransition("blocked", "done"), false);
+  assert.equal(canTransition("blocked", "awaiting-design-approval"), false);
+  assert.equal(canTransition("blocked", "awaiting-design-approval", { acceptIncompleteDesignReview: true }), true);
+  assert.equal(canTransition("blocked", "awaiting-design-approval", { retryDesignReviewSucceeded: true }), true);
   assert.equal(canTransition("failed", "blocked"), true);
   assert.equal(canTransition("failed", "executing"), false);
 });

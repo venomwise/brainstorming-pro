@@ -105,7 +105,7 @@ test("full review blocks when any reviewer returns a blocking finding", async ()
   assert.equal(result.aggregate?.findings.some((finding) => finding.reviewerRole === "testing-reviewer" && finding.severity === "blocking"), true);
 });
 
-test("full review fails closed when any required reviewer fails", async () => {
+test("full review records partial result when one selected reviewer fails", async () => {
   const { cwd, state } = await fixture();
   const result = await runDesignReviewPanel(state, {
     projectRoot: cwd,
@@ -113,7 +113,8 @@ test("full review fails closed when any required reviewer fails", async () => {
     runAgent: fullReviewAgent({ failingRole: "risk-security-reviewer" }),
   });
 
-  assert.equal(result.status, "failed");
-  assert.equal(result.readiness.status, "failed");
+  assert.equal(result.status, "partial");
+  assert.equal(result.readiness.status, "incomplete-review");
   assert.equal(result.error?.kind, "timeout");
+  assert.equal(result.aggregate?.coverage?.failedReviewers.includes("risk-security-reviewer"), true);
 });

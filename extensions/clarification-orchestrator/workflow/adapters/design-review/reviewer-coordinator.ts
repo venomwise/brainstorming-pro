@@ -2,7 +2,7 @@ import { resolveRunAgent, type AgentBackedAdapterOptions, type RunAgentFunction 
 import { buildMinimalDesignReviewPrompt, buildMinimalDesignReviewSystemPrompt } from "./prompts/minimal-review.ts";
 import { minimalDesignReviewOutputSchema } from "./schemas.ts";
 import { normalizeDesignReviewFindings } from "./finding-normalizer.ts";
-import { resolveFullDesignReviewerSet, type FullDesignReviewerRole } from "./full-reviewer-registry.ts";
+import { FULL_DESIGN_REVIEWER_ORDER, resolveFullDesignReviewerSet, type FullDesignReviewerRole } from "./full-reviewer-registry.ts";
 import { runFullDesignReviewer } from "./full-reviewer-runner.ts";
 import type { BoundDesignArtifact } from "./artifact-binding.ts";
 import type { DesignReviewerResult, MinimalDesignReviewOutput } from "./types.ts";
@@ -34,8 +34,14 @@ export async function runFullDesignReviewers(input: {
   options: ReviewerCoordinatorOptions;
   selectedFullReviewerRoles?: readonly FullDesignReviewerRole[];
 }): Promise<DesignReviewerResult[]> {
-  const reviewers = resolveFullDesignReviewerSet(input.selectedFullReviewerRoles);
+  const selectedFullReviewerRoles = input.selectedFullReviewerRoles ? orderFullReviewerRoles(input.selectedFullReviewerRoles) : undefined;
+  const reviewers = resolveFullDesignReviewerSet(selectedFullReviewerRoles);
   return await Promise.all(reviewers.map((reviewer) => runFullDesignReviewer({ ...input, reviewer })));
+}
+
+function orderFullReviewerRoles(roles: readonly FullDesignReviewerRole[]): FullDesignReviewerRole[] {
+  const selected = new Set(roles);
+  return FULL_DESIGN_REVIEWER_ORDER.filter((role) => selected.has(role));
 }
 
 export async function runMinimalDesignReviewer(input: {

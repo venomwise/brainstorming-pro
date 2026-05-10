@@ -2,18 +2,21 @@ import type { ProviderQualifiedModel } from "../../../runtime/agent-execution/ty
 import type { VersionedArtifactRef } from "../../types.ts";
 
 export type DesignReviewMode = "skip" | "minimal" | "full";
-export type DesignReviewPanelStatus = "skipped" | "passed" | "blocked" | "failed" | "unavailable";
+export type DesignReviewPanelStatus = "skipped" | "passed" | "blocked" | "failed" | "partial" | "unavailable";
 export type DesignReviewRunStatus = "created" | "running" | "collecting" | "aggregated" | DesignReviewPanelStatus;
 export type DesignReviewUnavailableReason = "full-review-unavailable" | "reviewer-role-pack-missing";
 export type DesignReviewSkipReason = "user-selected-skip";
 
-export type DesignReviewerRole =
-  | "minimal-reviewer"
+export type FullDesignReviewerRole =
   | "product-reviewer"
   | "architecture-reviewer"
   | "risk-security-reviewer"
   | "testing-reviewer"
   | "scope-simplicity-reviewer";
+
+export type DesignReviewerRole =
+  | "minimal-reviewer"
+  | FullDesignReviewerRole;
 
 export type DesignReviewFindingCategory = "product" | "architecture" | "risk-security" | "testing" | "scope-simplicity" | "consistency" | "missing-context";
 export type DesignReviewFindingSeverity = "blocking" | "non-blocking" | "note";
@@ -66,11 +69,52 @@ export type DesignReviewCounts = {
 };
 
 export type DesignApprovalReadiness = {
-  status: "ready-for-user-approval" | "blocked" | "failed" | "not-ready" | "skipped-by-user";
+  status: "ready-for-user-approval" | "blocked" | "failed" | "not-ready" | "skipped-by-user" | "incomplete-review";
   blockingFindingIds: string[];
   unresolvedUserQuestions: string[];
   summary: string;
 };
+
+export type DesignReviewCoverage = {
+  availableReviewers: FullDesignReviewerRole[];
+  selectedReviewers: FullDesignReviewerRole[];
+  unselectedReviewers: FullDesignReviewerRole[];
+  succeededReviewers: FullDesignReviewerRole[];
+  failedReviewers: FullDesignReviewerRole[];
+  pendingRetryReviewers: FullDesignReviewerRole[];
+};
+
+export type DesignReviewAttempt = {
+  attemptId: string;
+  reviewRunId: string;
+  designRef: VersionedArtifactRef;
+  reviewerRoles: FullDesignReviewerRole[];
+  reason: "initial" | "retry-failed-reviewers";
+  status: "started" | "completed" | "failed";
+  startedAt: string;
+  completedAt?: string;
+  succeededReviewers: FullDesignReviewerRole[];
+  failedReviewers: FullDesignReviewerRole[];
+};
+
+export type AcceptIncompleteDesignReviewDecision = {
+  decisionId: string;
+  reviewRunId: string;
+  designRef: VersionedArtifactRef;
+  acceptedCoverage: DesignReviewCoverage;
+  successfulResultRefs: string[];
+  failedDiagnosticRefs: string[];
+  aggregateRef: string;
+  decidedBy: "user";
+  reason?: string;
+  decidedAt: string;
+};
+
+export type DesignReviewRecoveryAction =
+  | { type: "retry-failed-reviewers"; reviewRunId: string; reviewerRoles: FullDesignReviewerRole[] }
+  | { type: "accept-incomplete-review"; reviewRunId: string; designRef: VersionedArtifactRef; coverage: DesignReviewCoverage }
+  | { type: "replace-review-selection"; designRef: VersionedArtifactRef; availableReviewerRoles: FullDesignReviewerRole[] }
+  | { type: "view-review-ledger"; reviewRunId: string; ledgerPath: string };
 
 export type DesignReviewAggregateResult = {
   reviewRunId: string;
@@ -80,6 +124,7 @@ export type DesignReviewAggregateResult = {
   counts: DesignReviewCounts;
   findings: DesignReviewFinding[];
   readiness: DesignApprovalReadiness;
+  coverage?: DesignReviewCoverage;
 };
 
 export type DesignReviewRun = {

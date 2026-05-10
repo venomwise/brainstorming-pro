@@ -27,7 +27,11 @@ test("README documents runtime commands, gates, and layout", async () => {
     "review-run.json",
     "product-reviewer.json",
     "scope-simplicity-reviewer.json",
-    "Reviewer subset selection, retry, and accept-incomplete behavior are deferred",
+    "Full design review may bind a user-selected subset",
+    "incomplete-review",
+    "attempts/",
+    "coverage.json",
+    "accept-incomplete-decision.json",
     "readiness.json",
     "Review readiness is not the same as approval",
   ]) {

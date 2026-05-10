@@ -27,7 +27,14 @@ export type ReviewMode = "skip" | "minimal" | "full";
 
 export type ReviewTarget = "design" | "plan" | "execution";
 
-export type ReviewDecisionRef = {
+export type FullDesignReviewerRole =
+  | "product-reviewer"
+  | "architecture-reviewer"
+  | "risk-security-reviewer"
+  | "testing-reviewer"
+  | "scope-simplicity-reviewer";
+
+type BaseReviewDecisionRef = {
   id: string;
   target: ReviewTarget;
   mode: ReviewMode;
@@ -36,6 +43,27 @@ export type ReviewDecisionRef = {
   selectedAt: string;
   path: string;
 };
+
+export type FullDesignReviewDecisionRef = BaseReviewDecisionRef & {
+  target: "design";
+  mode: "full";
+  selectedReviewerRoles?: FullDesignReviewerRole[];
+  selectionReason?: string;
+};
+
+export type NonFullReviewDecisionRef = BaseReviewDecisionRef & {
+  mode: "skip" | "minimal";
+  selectedReviewerRoles?: never;
+  selectionReason?: never;
+};
+
+export type NonDesignReviewDecisionRef = BaseReviewDecisionRef & {
+  target: "plan" | "execution";
+  selectedReviewerRoles?: never;
+  selectionReason?: never;
+};
+
+export type ReviewDecisionRef = FullDesignReviewDecisionRef | NonFullReviewDecisionRef | NonDesignReviewDecisionRef;
 
 export type ApprovalRef = {
   gate: "design" | "plan";
@@ -48,9 +76,12 @@ export type ApprovalRef = {
 export type ReviewPhaseStatus = {
   target: ReviewTarget;
   mode: ReviewMode;
-  status: "pending" | "passed" | "blocked" | "failed" | "skipped" | "unavailable";
+  status: "pending" | "passed" | "blocked" | "failed" | "partial" | "skipped" | "unavailable";
   artifacts: VersionedArtifactRef[];
   reason?: string;
+  readinessStatus?: string;
+  coverage?: unknown;
+  recoveryActions?: unknown[];
   completedAt?: string;
 };
 

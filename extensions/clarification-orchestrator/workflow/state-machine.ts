@@ -2,6 +2,8 @@ import type { ReviewMode, WorkflowPhase } from "./types.ts";
 
 export type TransitionContext = {
   reviewMode?: ReviewMode;
+  acceptIncompleteDesignReview?: boolean;
+  retryDesignReviewSucceeded?: boolean;
 };
 
 const terminalPhases = new Set<WorkflowPhase>(["done"]);
@@ -34,6 +36,8 @@ export function canTransition(from: WorkflowPhase, to: WorkflowPhase, context: T
     if (to === "plan-review") return context.reviewMode === "minimal" || context.reviewMode === "full";
     return to === "planning" || to === "blocked" || to === "failed";
   }
+
+  if (from === "blocked" && to === "awaiting-design-approval") return context.acceptIncompleteDesignReview === true || context.retryDesignReviewSucceeded === true;
 
   return unconditionalTransitions[from]?.includes(to) ?? false;
 }

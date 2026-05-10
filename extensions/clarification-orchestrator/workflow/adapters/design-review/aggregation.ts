@@ -1,4 +1,4 @@
-import type { DesignReviewAggregateResult, DesignReviewFinding, DesignReviewPanelStatus } from "./types.ts";
+import type { DesignReviewAggregateResult, DesignReviewCoverage, DesignReviewFinding, DesignReviewPanelStatus } from "./types.ts";
 import type { VersionedArtifactRef } from "../../types.ts";
 import { evaluateDesignApprovalReadiness } from "./readiness.ts";
 
@@ -7,6 +7,7 @@ export function aggregateDesignReviewFindings(input: {
   designRef: VersionedArtifactRef;
   findings: DesignReviewFinding[];
   forcedStatus?: DesignReviewPanelStatus;
+  coverage?: DesignReviewCoverage;
 }): DesignReviewAggregateResult {
   const blocking = input.findings.filter((finding) => finding.severity === "blocking").length;
   const nonBlocking = input.findings.filter((finding) => finding.severity === "non-blocking").length;
@@ -19,7 +20,7 @@ export function aggregateDesignReviewFindings(input: {
     byCategory: countBy(input.findings, (finding) => finding.category),
     byReviewer: countBy(input.findings, (finding) => finding.reviewerRole),
   };
-  const readiness = evaluateDesignApprovalReadiness({ status, findings: input.findings });
+  const readiness = evaluateDesignApprovalReadiness({ status, findings: input.findings, coverage: input.coverage });
   return {
     reviewRunId: input.reviewRunId,
     designRef: input.designRef,
@@ -28,6 +29,7 @@ export function aggregateDesignReviewFindings(input: {
     counts,
     findings: input.findings,
     readiness,
+    coverage: input.coverage,
   };
 }
 
@@ -44,5 +46,6 @@ function summary(status: DesignReviewPanelStatus, blocking: number, total: numbe
   if (status === "blocked") return `Design review blocked by ${blocking} blocking finding(s).`;
   if (status === "skipped") return "Design review skipped by user.";
   if (status === "unavailable") return "Design review unavailable.";
+  if (status === "partial") return `Design review incomplete with ${total} finding(s) from successful reviewer(s).`;
   return "Design review failed.";
 }
