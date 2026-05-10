@@ -9,9 +9,14 @@ const expectedRoles: AgentRole[] = [
   "plan-author",
   "task-executor",
   "minimal-reviewer",
+  "product-reviewer",
+  "architecture-reviewer",
+  "risk-security-reviewer",
+  "testing-reviewer",
+  "scope-simplicity-reviewer",
 ];
 
-test("agent role registry defines first-version roles with no skills and no session", () => {
+test("agent role registry defines workflow roles with no skills and no session", () => {
   assert.deepEqual(Object.keys(AGENT_ROLE_DEFINITIONS).sort(), [...expectedRoles].sort());
 
   for (const role of expectedRoles) {
@@ -35,6 +40,14 @@ test("validateRoleForPhase accepts roles only in their allowed workflow phases",
   assert.equal(validateRoleForPhase("minimal-reviewer", "design-review").ok, true);
   assert.equal(validateRoleForPhase("minimal-reviewer", "plan-review").ok, true);
   assert.equal(validateRoleForPhase("minimal-reviewer", "execution-review").ok, true);
+  assert.equal(validateRoleForPhase("product-reviewer", "design-review").ok, true);
+  assert.equal(validateRoleForPhase("architecture-reviewer", "design-review").ok, true);
+  assert.equal(validateRoleForPhase("risk-security-reviewer", "design-review").ok, true);
+  assert.equal(validateRoleForPhase("testing-reviewer", "design-review").ok, true);
+  assert.equal(validateRoleForPhase("scope-simplicity-reviewer", "design-review").ok, true);
+
+  const fullReviewerMismatch = validateRoleForPhase("product-reviewer", "planning");
+  assert.equal(fullReviewerMismatch.ok, false);
 
   const mismatch = validateRoleForPhase("plan-author", "awaiting-design-approval");
   assert.equal(mismatch.ok, false);

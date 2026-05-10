@@ -33,7 +33,7 @@ intake
 
 The runtime pauses at mandatory gates:
 
-- `awaiting-design-review-decision` — inspect the candidate design and choose `skip`, `minimal`, future `full`, revise, or exit. `skip` is recorded explicitly with `reason = "user-selected-skip"`; unavailable `full` is reported without downgrading. `minimal` runs a real workflow-owned review panel and writes a topic-scoped review ledger.
+- `awaiting-design-review-decision` — inspect the candidate design and choose `skip`, `minimal`, `full`, revise, or exit. `skip` is recorded explicitly with `reason = "user-selected-skip"`; `minimal` runs a lightweight workflow-owned review, and `full` runs the complete five-role design reviewer pack (Product, Architecture, Risk/Security, Testing, and Scope/Simplicity) by default. Reviewer subset selection, retry, and accept-incomplete behavior are deferred to the later design-review execution-control work; no review mode is silently downgraded.
 - `awaiting-design-approval` — approve the exact reviewed/skipped design artifact before planning can start, request revision, show status, or exit. Review readiness is not the same as approval.
 - `awaiting-plan-review-decision` — inspect current `requirements.md` and `tasks.md` refs and choose plan review depth.
 - `awaiting-plan-approval` — approve exact requirements/tasks refs before execution can start.
@@ -70,6 +70,7 @@ specs/<topic>/
         <review-run-id>/
           review-run.json
           reviewer-results/
+            minimal-reviewer.json | product-reviewer.json | architecture-reviewer.json | risk-security-reviewer.json | testing-reviewer.json | scope-simplicity-reviewer.json
           aggregated-findings.json
           readiness.json
     runs/<run-id>/

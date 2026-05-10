@@ -86,7 +86,7 @@ test("reviewer failure and unauthorized output fail closed", async () => {
   assert.equal(injected.status, "failed");
 });
 
-test("skip and full unavailable are explicit durable review runs", async () => {
+test("skip remains explicit and full review now executes the registered reviewer pack", async () => {
   const skippedFixture = await fixture("skip");
   const skipped = await runDesignReviewPanel(skippedFixture.state, { projectRoot: skippedFixture.cwd, model: "test:model", runAgent: successfulAgent({ summary: "unused", confidence: "high", findings: [] }) });
   assert.equal(skipped.status, "skipped");
@@ -94,6 +94,7 @@ test("skip and full unavailable are explicit durable review runs", async () => {
 
   const fullFixture = await fixture("full");
   const full = await runDesignReviewPanel(fullFixture.state, { projectRoot: fullFixture.cwd, model: "test:model", runAgent: successfulAgent({ summary: "unused", confidence: "high", findings: [] }) });
-  assert.equal(full.status, "unavailable");
-  assert.equal(full.unavailableReason, "full-review-unavailable");
+  assert.equal(full.status, "passed");
+  assert.equal(full.readiness.status, "ready-for-user-approval");
+  assert.equal(full.unavailableReason, undefined);
 });

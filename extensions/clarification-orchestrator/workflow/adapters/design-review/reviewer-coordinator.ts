@@ -2,17 +2,18 @@ import { resolveRunAgent, type AgentBackedAdapterOptions, type RunAgentFunction 
 import { buildMinimalDesignReviewPrompt, buildMinimalDesignReviewSystemPrompt } from "./prompts/minimal-review.ts";
 import { minimalDesignReviewOutputSchema } from "./schemas.ts";
 import { normalizeDesignReviewFindings } from "./finding-normalizer.ts";
+import { resolveFullDesignReviewerSet, type FullDesignReviewerRole } from "./full-reviewer-registry.ts";
+import { runFullDesignReviewer } from "./full-reviewer-runner.ts";
 import type { BoundDesignArtifact } from "./artifact-binding.ts";
-import type { DesignReviewerResult, DesignReviewerRole, MinimalDesignReviewOutput } from "./types.ts";
+import type { DesignReviewerResult, MinimalDesignReviewOutput } from "./types.ts";
 import type { WorkflowState } from "../../types.ts";
 
 export type ReviewerCoordinatorOptions = Pick<AgentBackedAdapterOptions, "projectRoot" | "model"> & {
   runAgent?: RunAgentFunction;
 };
 
-export function resolveFullDesignReviewerSet(): Exclude<DesignReviewerRole, "minimal-reviewer">[] | undefined {
-  return undefined;
-}
+export { resolveFullDesignReviewerSet } from "./full-reviewer-registry.ts";
+export type { FullDesignReviewerRole } from "./full-reviewer-registry.ts";
 
 export async function runDesignReviewers(input: {
   mode: "minimal" | "full";
@@ -20,9 +21,21 @@ export async function runDesignReviewers(input: {
   artifact: BoundDesignArtifact;
   state: WorkflowState;
   options: ReviewerCoordinatorOptions;
+  selectedFullReviewerRoles?: readonly FullDesignReviewerRole[];
 }): Promise<DesignReviewerResult[]> {
-  if (input.mode === "full") throw new Error("Full design reviewer role pack is not registered.");
-  return [await runMinimalDesignReviewer(input)];
+  if (input.mode === "minimal") return [await runMinimalDesignReviewer(input)];
+  return await runFullDesignReviewers(input);
+}
+
+export async function runFullDesignReviewers(input: {
+  reviewRunId: string;
+  artifact: BoundDesignArtifact;
+  state: WorkflowState;
+  options: ReviewerCoordinatorOptions;
+  selectedFullReviewerRoles?: readonly FullDesignReviewerRole[];
+}): Promise<DesignReviewerResult[]> {
+  const reviewers = resolveFullDesignReviewerSet(input.selectedFullReviewerRoles);
+  return await Promise.all(reviewers.map((reviewer) => runFullDesignReviewer({ ...input, reviewer })));
 }
 
 export async function runMinimalDesignReviewer(input: {

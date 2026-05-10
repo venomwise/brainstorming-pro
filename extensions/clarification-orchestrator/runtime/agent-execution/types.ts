@@ -5,7 +5,12 @@ export type AgentRole =
   | "design-reviser"
   | "plan-author"
   | "task-executor"
-  | "minimal-reviewer";
+  | "minimal-reviewer"
+  | "product-reviewer"
+  | "architecture-reviewer"
+  | "risk-security-reviewer"
+  | "testing-reviewer"
+  | "scope-simplicity-reviewer";
 
 export type AgentResultKind = "artifact-draft" | "review-findings" | "execution-report";
 

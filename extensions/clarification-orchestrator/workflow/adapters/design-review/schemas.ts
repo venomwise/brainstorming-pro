@@ -1,25 +1,48 @@
 import type { AgentOutputSchema } from "../../../runtime/agent-execution/types.ts";
-import type { DesignReviewFindingCategory, DesignReviewFindingDraft, DesignReviewFindingSeverity, MinimalDesignReviewOutput } from "./types.ts";
+import type { DesignReviewerOutput, DesignReviewFindingCategory, DesignReviewFindingDraft, DesignReviewFindingSeverity, MinimalDesignReviewOutput } from "./types.ts";
 
 const categories = new Set<DesignReviewFindingCategory>(["product", "architecture", "risk-security", "testing", "scope-simplicity", "consistency", "missing-context"]);
 const severities = new Set<DesignReviewFindingSeverity>(["blocking", "non-blocking", "note"]);
-const forbiddenKeys = new Set(["approved", "approval", "approve", "statePatch", "workflowState", "artifacts", "artifactCommit", "commitArtifacts", "mutations"]);
+const forbiddenKeys = new Set([
+  "approved",
+  "approval",
+  "approve",
+  "approveDesign",
+  "statePatch",
+  "workflowState",
+  "workflowStatePatch",
+  "phase",
+  "phaseTransition",
+  "nextPhase",
+  "artifacts",
+  "artifactCommit",
+  "commitArtifacts",
+  "gateDecision",
+  "skipGate",
+  "skipGates",
+  "mutations",
+]);
 
-export const minimalDesignReviewOutputSchema: AgentOutputSchema<MinimalDesignReviewOutput> = {
-  name: "MinimalDesignReviewOutput",
+export const designReviewerOutputSchema: AgentOutputSchema<DesignReviewerOutput> = {
+  name: "DesignReviewerOutput",
   parse(raw) {
     return JSON.parse(raw) as unknown;
   },
   validate(value) {
     const record = asRecord(value, "output");
     rejectUnauthorizedDirectives(record);
-    const output: MinimalDesignReviewOutput = {
+    const output: DesignReviewerOutput = {
       summary: asNonEmptyString(record.summary, "summary"),
       confidence: asConfidence(record.confidence),
       findings: asFindings(record.findings),
     };
     return output;
   },
+};
+
+export const minimalDesignReviewOutputSchema: AgentOutputSchema<MinimalDesignReviewOutput> = {
+  ...designReviewerOutputSchema,
+  name: "MinimalDesignReviewOutput",
 };
 
 export function validateDesignReviewFindingDraft(value: unknown, name = "finding"): DesignReviewFindingDraft {
@@ -88,6 +111,6 @@ function asEnum<T extends string>(value: unknown, values: Set<T>, name: string):
   return value as T;
 }
 
-function asConfidence(value: unknown): MinimalDesignReviewOutput["confidence"] {
+function asConfidence(value: unknown): DesignReviewerOutput["confidence"] {
   return asEnum(value, new Set(["low", "medium", "high"]), "confidence");
 }

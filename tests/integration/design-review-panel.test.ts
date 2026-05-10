@@ -44,10 +44,10 @@ test("runtime blocking review does not reach approval", async () => {
   assert.equal(state.reviewStatus.design?.status, "blocked");
 });
 
-test("runtime full review is unavailable and not approval-ready", async () => {
+test("runtime full review executes the complete reviewer pack and reaches approval when clean", async () => {
   const { orchestrator } = await prepared({ summary: "unused", confidence: "high", findings: [] });
   const state = await orchestrator.resumeWorkflow("my-topic", { type: "review-mode", mode: "full", user: "u" });
   assert.ok(!("selectionRequired" in state));
-  assert.equal(state.phase, "blocked");
-  assert.equal(state.reviewStatus.design?.status, "unavailable");
+  assert.equal(state.phase, "awaiting-design-approval");
+  assert.equal(state.reviewStatus.design?.status, "passed");
 });

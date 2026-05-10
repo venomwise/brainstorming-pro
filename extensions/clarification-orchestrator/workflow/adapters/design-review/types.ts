@@ -37,11 +37,13 @@ export type DesignReviewFinding = DesignReviewFindingDraft & {
   reviewerRole: DesignReviewerRole;
 };
 
-export type MinimalDesignReviewOutput = {
+export type DesignReviewerOutput = {
   summary: string;
   findings: DesignReviewFindingDraft[];
   confidence: "low" | "medium" | "high";
 };
+
+export type MinimalDesignReviewOutput = DesignReviewerOutput;
 
 export type DesignReviewerResult = {
   reviewRunId: string;

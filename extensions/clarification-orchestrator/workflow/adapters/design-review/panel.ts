@@ -5,7 +5,7 @@ import { resolveDesignReviewMode } from "./mode.ts";
 import { aggregateDesignReviewFindings } from "./aggregation.ts";
 import { evaluateDesignApprovalReadiness } from "./readiness.ts";
 import { createDesignReviewRun, ensureReviewLedger, writeAggregatedFindings, writeDesignReviewRun, writeReadiness, writeReviewerResult } from "./review-run-store.ts";
-import { resolveFullDesignReviewerSet, runDesignReviewers, type ReviewerCoordinatorOptions } from "./reviewer-coordinator.ts";
+import { runDesignReviewers, type ReviewerCoordinatorOptions } from "./reviewer-coordinator.ts";
 import type { DesignReviewPanelResult, DesignReviewRun } from "./types.ts";
 
 export async function runDesignReviewPanel(state: WorkflowState, options: ReviewerCoordinatorOptions): Promise<DesignReviewPanelResult> {
@@ -32,17 +32,21 @@ export async function runDesignReviewPanel(state: WorkflowState, options: Review
     return { reviewRunId: run.reviewRunId, mode, status: "skipped", designRef: artifact.ref, readiness, ledgerPath: run.ledgerPath, reason: "user-selected-skip" };
   }
 
-  if (mode === "full" && !resolveFullDesignReviewerSet()) {
-    const readiness = evaluateDesignApprovalReadiness({ status: "unavailable" });
-    run = { ...run, status: "unavailable", unavailableReason: "full-review-unavailable", readiness, completedAt: new Date().toISOString() };
-    await writeReadiness(layout, run, readiness);
-    await writeDesignReviewRun(layout, run);
-    return { reviewRunId: run.reviewRunId, mode, status: "unavailable", designRef: artifact.ref, readiness, ledgerPath: run.ledgerPath, unavailableReason: "full-review-unavailable" };
-  }
-
   run = { ...run, status: "running" };
   await writeDesignReviewRun(layout, run);
-  const reviewerResults = await runDesignReviewers({ mode, reviewRunId: run.reviewRunId, artifact, state, options });
+  let reviewerResults;
+  try {
+    reviewerResults = await runDesignReviewers({ mode, reviewRunId: run.reviewRunId, artifact, state, options });
+  } catch (error) {
+    const reviewError = { kind: "reviewer-coordinator-error", message: error instanceof Error ? error.message : String(error), retryable: false };
+    const readiness = evaluateDesignApprovalReadiness({ status: "failed" });
+    const aggregate = aggregateDesignReviewFindings({ reviewRunId: run.reviewRunId, designRef: artifact.ref, findings: [], forcedStatus: "failed" });
+    run = await writeAggregatedFindings(layout, run, aggregate);
+    run = await writeReadiness(layout, run, readiness);
+    run = { ...run, status: "failed", error: reviewError, completedAt: new Date().toISOString() };
+    await writeDesignReviewRun(layout, run);
+    return { reviewRunId: run.reviewRunId, mode, status: "failed", designRef: artifact.ref, aggregate, readiness, ledgerPath: run.ledgerPath, error: reviewError };
+  }
   for (const result of reviewerResults) {
     run = await writeReviewerResult(layout, run, result);
   }

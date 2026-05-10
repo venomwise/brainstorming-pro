@@ -25,6 +25,9 @@ test("README documents runtime commands, gates, and layout", async () => {
     "approvals/",
     "reviews/",
     "review-run.json",
+    "product-reviewer.json",
+    "scope-simplicity-reviewer.json",
+    "Reviewer subset selection, retry, and accept-incomplete behavior are deferred",
     "readiness.json",
     "Review readiness is not the same as approval",
   ]) {
