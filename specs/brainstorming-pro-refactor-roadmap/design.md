@@ -501,26 +501,168 @@ specs/controlled-spec-exec-adapter/design.md
 specs/design-review-panel/design.md
 ```
 
-定位：自动化复杂需求下的多 Agent design 交叉评审。
+定位：建立 Design Review Panel foundation，为自动化复杂需求下的多 Agent design 交叉评审定义稳定 runtime contract。该 spec 设计完整 reviewer panel 的上位架构、review run 生命周期、exact design version binding、finding schema、review ledger、基础 aggregation/readiness、adapter 集成和 full review capability boundary；但不一次性实现完整五角色 full reviewer prompt、advanced triage 或自动 revision loop。`full` review 在 Spec 5 首版可以显式返回 `unavailable`，但必须通过正式 capability 状态和事件记录表达，不能静默降级为 `minimal` 或 `skip`。
 
 包含：
 
-- reviewer roles；
-- review schemas；
-- parallel execution；
-- review aggregation；
-- triage；
-- blocking/non-blocking 分类；
-- design revision loop；
-- max review rounds；
-- user questions；
-- review ledger。
+- `DesignReviewPanel` foundation；
+- design review phase adapter 替换 placeholder；
+- review run lifecycle：`created | running | collecting | aggregated | passed | blocked | failed | unavailable`；
+- `skip | minimal | full` review mode handling，其中 `full` 首版允许 `full-review-unavailable`；
+- exact `design` artifact version/checksum binding；
+- reviewer role abstraction 和 full reviewer set contract；
+- `minimal` review 的真实执行路径，且使用与 full review 相同的 review run / finding / ledger schema；
+- unified `DesignReviewFinding` schema；
+- reviewer result schema 和 malformed output handling；
+- basic finding aggregation；
+- basic blocking/non-blocking/readiness result；
+- review ledger layout under `.workflow/reviews/design/<review-run-id>/`；
+- stale artifact detection；
+- reviewer timeout/failure/block semantics；
+- progress/audit hooks for future TUI；
+- follow-up 子 spec 的 extension points。
+
+不包含：
+
+- 完整 full reviewer role pack 的 prompt/schema 实现；
+- 五个 reviewer 的并发 full execution；
+- advanced triage、冲突归并和 approval readiness refinement；
+- automatic design revision loop；
+- plan review；
+- execution review；
+- public command surface 变更；
+- review panel 自动 approve design；
+- reviewer 直接修改 `design.md`、approval、decision 或 workflow state。
 
 依赖：
 
 - `workflow-runtime-orchestrator`。
 - `agent-execution-runtime`。
 - `skill-phase-adapters` 中的 brainstorming adapter。
+
+后续子 spec：
+
+```text
+Spec 5.1: design-reviewer-role-pack
+Spec 5.2: design-review-triage-and-readiness
+Spec 5.3: design-revision-loop
+```
+
+#### Spec 5.1: `design-reviewer-role-pack`
+
+建议路径：
+
+```text
+specs/design-reviewer-role-pack/design.md
+```
+
+定位：在 Spec 5 定义的 review run、finding schema、ledger 和 version-binding contract 上，实现完整 `full` design review reviewer role pack。该 spec 让 `full` review 从 `unavailable` 变成可执行，但不能重新定义 Spec 5 的生命周期、ledger、approval gate 或 state authority。
+
+包含：
+
+- Product Reviewer；
+- Architecture Reviewer；
+- Risk / Security Reviewer；
+- Testing Reviewer；
+- Scope / Simplicity Reviewer；
+- reviewer role registration / role policy 扩展；
+- per-role prompt/system prompt；
+- per-role structured output schema；
+- full mode reviewer set resolution；
+- parallel reviewer execution through `agent-execution-runtime`；
+- per-reviewer timeout、failure、partial result policy；
+- reviewer result normalization into Spec 5 `DesignReviewFinding`；
+- role-specific fixtures and tests。
+
+不包含：
+
+- review run lifecycle 重新设计；
+- review ledger layout 重新设计；
+- approval readiness contract 重新设计；
+- advanced triage；
+- automatic design revision loop；
+- design approval automation。
+
+依赖：
+
+- `design-review-panel`。
+- `agent-execution-runtime`。
+- `skill-phase-adapters` 中的 brainstorming adapter。
+
+#### Spec 5.2: `design-review-triage-and-readiness`
+
+建议路径：
+
+```text
+specs/design-review-triage-and-readiness/design.md
+```
+
+定位：增强 Spec 5 的基础 aggregation/readiness，把多 reviewer findings 转换成更稳定、用户可理解、可驱动 revision 的 triage 和 approval readiness report。该 spec 聚焦 finding deduplication、冲突处理、must-fix/should-fix/note 分类和 unresolved question summary，不负责 reviewer prompt 或 revision 写作。
+
+包含：
+
+- finding deduplication；
+- conflicting reviewer result handling；
+- blocking vs non-blocking classification refinement；
+- must-fix / should-fix / note 分层；
+- approval readiness report；
+- unresolved user question summary；
+- user-facing review summary；
+- deterministic merge + optional agent summary 的边界；
+- stale readiness invalidation when design version changes。
+
+不包含：
+
+- reviewer role prompt；
+- full reviewer pack；
+- design artifact mutation；
+- automatic revision loop；
+- design approval automation。
+
+依赖：
+
+- `design-review-panel`。
+- `design-reviewer-role-pack` 可选；Spec 5.2 应能处理 minimal 和 full 两种 reviewer result set。
+
+#### Spec 5.3: `design-revision-loop`
+
+建议路径：
+
+```text
+specs/design-revision-loop/design.md
+```
+
+定位：根据 blocking findings 和 unresolved questions 驱动受控 design revision loop。该 spec 使用 Spec 4 的 brainstorming/design reviser 基础和 Spec 5/5.2 的 review outputs 生成新版 `design.md`，然后重新绑定新 artifact version 并重新 review。它不能自动 approve design，且必须有 max revision/review rounds 和用户问题回退机制。
+
+包含：
+
+- `DesignRevisionRequest` schema；
+- design-reviser role integration；
+- revision prompt/system prompt；
+- revised design output schema；
+- artifact commit request for new design version；
+- stale review invalidation；
+- max revision rounds / max review rounds；
+- unresolved user question handling；
+- blocked recovery semantics；
+- review-after-revision loop；
+- revision ledger / event integration。
+
+不包含：
+
+- reviewer role pack；
+- advanced triage 规则重新设计；
+- plan review；
+- plan regeneration；
+- execution；
+- automatic design approval。
+
+依赖：
+
+- `design-review-panel`。
+- `design-review-triage-and-readiness`。
+- `skill-phase-adapters` 中的 brainstorming adapter / design reviser foundation。
+- `agent-execution-runtime`。
 
 #### Spec 6: `plan-review-panel`
 
@@ -659,15 +801,15 @@ Runtime records execution report
 Runtime marks workflow done or blocked
 ```
 
-第一阶段落地时，review panels 可以是用户可选择的 placeholder：
+第一阶段落地时，review panels 可以分层演进：
 
 ```text
-DesignReviewAdapter: user-selected skip or minimal
+DesignReviewPanel foundation: user-selected skip/minimal/full，minimal 走真实 review run + finding schema + ledger，full 可显式 unavailable，后续由 Spec 5.1 实现
 PlanReviewAdapter: user-selected skip or minimal
 Controlled SpecExecAdapter: code-owned task loop with per-task evidence and blockers
 ```
 
-`skipped` 必须来自用户显式选择或明确策略记录，不能是隐式 no-op。Design/plan review 节点必须保留；execution correctness 则内嵌在 controlled task loop、checkpoint tasks、evidence validation 和 blocker escalation 中，不再设置默认终局 execution-review 节点。
+`skipped` 必须来自用户显式选择或明确策略记录，不能是隐式 no-op。`full` unavailable 必须是显式 capability 状态和事件，不能静默降级为 `minimal` 或 `skip`。Design/plan review 节点必须保留；execution correctness 则内嵌在 controlled task loop、checkpoint tasks、evidence validation 和 blocker escalation 中，不再设置默认终局 execution-review 节点。
 
 ## Error Handling
 
@@ -737,6 +879,9 @@ Reviewer 输出 findings。Design/task 修改应由 revision phase 或 adapter �
 
 ### Review panel tests
 
+- design review run 绑定 exact design artifact version/checksum。
+- `minimal` review 使用统一 finding schema、aggregation 和 ledger。
+- `full` review 在 role pack 未实现时显式返回 unavailable，且不能静默降级。
 - 多 reviewer 并发执行。
 - findings aggregation。
 - conflicting reviews triage。
@@ -765,8 +910,8 @@ Reviewer 输出 findings。Design/task 修改应由 revision phase 或 adapter �
 
 1. `brainstorming-pro`、`spec-plan-pro`、`spec-exec-pro` phase adapter 应直接调用内部模块，还是通过 isolated child Pi process 调用？
 2. Multi-agent review 的默认 reviewer 数量和角色是否可配置？
-3. Review triage 是单独 agent，还是 runtime deterministic merge + optional agent summary？
-4. Design revision loop 是否自动执行，还是遇到 blocking finding 后先询问用户？
+3. `design-review-triage-and-readiness` 中 advanced triage 应采用多大比例的 deterministic merge 与 optional agent summary？
+4. `design-revision-loop` 中哪些 blocking findings 可以自动修订，哪些必须先询问用户？
 5. Plan review failed 后是否自动重新生成 tasks？
 6. Controlled execution blocked 后应如何通过 `--resume` 选择 retry、abort、处理 missing dependency 或请求 plan revision？
 7. 是否需要 background async runner？如果需要，应在 workflow runtime 稳定后单独设计。
@@ -794,7 +939,13 @@ Planning 和 execution 行为必须通过 runtime phases/adapters 暴露，并�
    ↓
 6. workflow-tui-live-progress minimal
    ↓
-7. design-review-panel
+7. design-review-panel foundation
+   ↓
+7.1 design-reviewer-role-pack
+   ↓
+7.2 design-review-triage-and-readiness
+   ↓
+7.3 design-revision-loop
    ↓
 8. plan-review-panel
    ↓
