@@ -163,7 +163,10 @@ export type DesignReviewPanelResult = {
   status: DesignReviewPanelStatus;
   designRef: VersionedArtifactRef;
   aggregate?: DesignReviewAggregateResult;
+  triage?: DesignReviewTriageReport;
   readiness: DesignApprovalReadiness;
+  enhancedReadiness?: DesignReviewReadinessReport;
+  triageSummary?: string;
   ledgerPath: string;
   unavailableReason?: DesignReviewUnavailableReason;
   reason?: DesignReviewSkipReason;
@@ -183,6 +186,110 @@ export type DesignReviewTriageInput = {
 
 export type DesignReviewReadinessRefinementInput = DesignReviewTriageInput & {
   currentReadiness: DesignApprovalReadiness;
+};
+
+export type DesignReviewTriageLevel = "must-fix" | "should-fix" | "note";
+export type DesignReviewConflictType = "recommendation-conflict" | "severity-disagreement" | "scope-disagreement" | "readiness-disagreement";
+export type DesignReviewConflictImpact = "blocking-approval-readiness" | "requires-resolution-before-revision" | "informational";
+export type DesignReviewRecommendedNextAction = "revise-design" | "resolve-user-questions" | "approve-design" | "accept-incomplete-or-retry" | "inspect-failure-or-retry" | "review-summary";
+export type DesignReviewTriageReportStatus = "fresh" | "stale" | "invalid" | "failed";
+
+export type DesignReviewTriageReviewerResultRef = {
+  reviewerRole: DesignReviewerRole;
+  path: string;
+  checksum: string;
+  status: "succeeded" | "failed";
+};
+
+export type DesignReviewTriageSourceRefs = {
+  reviewRunId: string;
+  designRef: VersionedArtifactRef;
+  aggregate: {
+    path: string;
+    checksum: string;
+  };
+  coverage?: {
+    path: string;
+    checksum: string;
+  };
+  reviewerResults: DesignReviewTriageReviewerResultRef[];
+  reviewDecisionRef?: string;
+};
+
+export type DesignReviewFindingCluster = {
+  clusterId: string;
+  triageLevel: DesignReviewTriageLevel;
+  sourceFindingIds: string[];
+  reviewerRoles: DesignReviewTriageReviewerResultRef["reviewerRole"][];
+  category: DesignReviewFindingCategory;
+  severity: DesignReviewFindingSeverity;
+  requiresRevision: boolean;
+  title: string;
+  description: string;
+  evidence?: string[];
+  affectedSections: string[];
+  recommendations: string[];
+  userQuestions: string[];
+};
+
+export type DesignReviewConflict = {
+  conflictId: string;
+  type: DesignReviewConflictType;
+  impact: DesignReviewConflictImpact;
+  sourceFindingIds: string[];
+  clusterIds: string[];
+  reviewerRoles: DesignReviewTriageReviewerResultRef["reviewerRole"][];
+  summary: string;
+  details: string;
+};
+
+export type DesignReviewUnresolvedQuestion = {
+  questionId: string;
+  question: string;
+  blocking: boolean;
+  sourceFindingIds: string[];
+  clusterIds: string[];
+  reviewerRoles: DesignReviewTriageReviewerResultRef["reviewerRole"][];
+  relatedSections: string[];
+};
+
+export type DesignReviewCoverageSummary = DesignReviewCoverage & {
+  status: "complete" | "incomplete" | "unavailable";
+  hasIncompleteCoverage: boolean;
+};
+
+export type DesignReviewReadinessReport = {
+  status: DesignApprovalReadiness["status"];
+  sourceReadiness: DesignApprovalReadiness;
+  recommendedNextAction: DesignReviewRecommendedNextAction;
+  blockingFindingIds: string[];
+  blockingConflictIds: string[];
+  blockingQuestionIds: string[];
+  summary: string;
+};
+
+export type DesignReviewTriageEngineInput = {
+  reviewRun: DesignReviewRun;
+  aggregate: DesignReviewAggregateResult;
+  findings: DesignReviewFinding[];
+  coverage?: DesignReviewCoverage;
+  currentReadiness?: DesignApprovalReadiness;
+  sources: DesignReviewTriageSourceRefs;
+};
+
+export type DesignReviewTriageReport = {
+  reviewRunId: string;
+  designRef: VersionedArtifactRef;
+  status: DesignReviewTriageReportStatus;
+  generatedAt: string;
+  sources: DesignReviewTriageSourceRefs;
+  findings: DesignReviewFinding[];
+  clusters: DesignReviewFindingCluster[];
+  conflicts: DesignReviewConflict[];
+  unresolvedQuestions: DesignReviewUnresolvedQuestion[];
+  coverage: DesignReviewCoverageSummary;
+  readiness: DesignReviewReadinessReport;
+  summary: string;
 };
 
 export type DesignRevisionRequestInput = {

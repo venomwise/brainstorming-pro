@@ -8,6 +8,7 @@ import { aggregatePartialDesignReviewFindings } from "./partial-aggregation.ts";
 import { evaluateDesignApprovalReadiness } from "./readiness.ts";
 import { computeDesignReviewCoverage } from "./review-coverage.ts";
 import { createDesignReviewRun, ensureReviewLedger, writeAggregatedFindings, writeCoverage, writeDesignReviewRun, writeReadiness, writeReviewerResult } from "./review-run-store.ts";
+import { buildAndWriteDesignReviewTriage } from "./triage-ledger.ts";
 import { completeDesignReviewAttempt, createDesignReviewAttempt, writeAttemptReviewerResult } from "./review-attempt-store.ts";
 import { runDesignReviewers, type FullDesignReviewerRole, type ReviewerCoordinatorOptions } from "./reviewer-coordinator.ts";
 import { resolveDesignReviewerSelection, type ResolvedDesignReviewerSelection } from "./reviewer-selection.ts";
@@ -109,9 +110,10 @@ export async function runDesignReviewPanel(state: WorkflowState, options: Review
       phase: "design-review",
       details: { reviewRunId: run.reviewRunId, coverage, readinessStatus: aggregate.readiness.status, aggregatedAt: new Date().toISOString() },
     });
+    const triage = await buildAndWriteDesignReviewTriage({ layout, run, aggregate, reviewerResults });
     run = { ...run, status: aggregate.status, error: failedResults[0]?.error, completedAt: new Date().toISOString() };
     await writeDesignReviewRun(layout, run);
-    return { reviewRunId: run.reviewRunId, mode, status: aggregate.status, designRef: artifact.ref, aggregate, readiness: aggregate.readiness, ledgerPath: run.ledgerPath, error: failedResults[0]?.error };
+    return { reviewRunId: run.reviewRunId, mode, status: aggregate.status, designRef: artifact.ref, aggregate, triage, readiness: aggregate.readiness, enhancedReadiness: triage.readiness, triageSummary: triage.summary, ledgerPath: run.ledgerPath, error: failedResults[0]?.error };
   }
   const failed = failedResults[0];
   if (failed) {
@@ -121,9 +123,10 @@ export async function runDesignReviewPanel(state: WorkflowState, options: Review
     const aggregate = aggregateDesignReviewFindings({ reviewRunId: run.reviewRunId, designRef: artifact.ref, findings: [], forcedStatus: "failed", coverage });
     run = await writeAggregatedFindings(layout, run, aggregate);
     run = await writeReadiness(layout, run, readiness);
+    const triage = await buildAndWriteDesignReviewTriage({ layout, run, aggregate, reviewerResults });
     run = { ...run, status: "failed", error: failed.error, completedAt: new Date().toISOString() };
     await writeDesignReviewRun(layout, run);
-    return { reviewRunId: run.reviewRunId, mode, status: "failed", designRef: artifact.ref, aggregate, readiness, ledgerPath: run.ledgerPath, error: failed.error };
+    return { reviewRunId: run.reviewRunId, mode, status: "failed", designRef: artifact.ref, aggregate, triage, readiness, enhancedReadiness: triage.readiness, triageSummary: triage.summary, ledgerPath: run.ledgerPath, error: failed.error };
   }
   const findings = reviewerResults.flatMap((result) => result.findings);
   const coverage = mode === "full" && reviewerSelection ? computeDesignReviewCoverage({ selectedReviewerRoles: reviewerSelection.selectedReviewerRoles, reviewerResults }) : undefined;
@@ -131,7 +134,8 @@ export async function runDesignReviewPanel(state: WorkflowState, options: Review
   const aggregate = aggregateDesignReviewFindings({ reviewRunId: run.reviewRunId, designRef: artifact.ref, findings, coverage });
   run = await writeAggregatedFindings(layout, run, aggregate);
   run = await writeReadiness(layout, run, aggregate.readiness);
+  const triage = await buildAndWriteDesignReviewTriage({ layout, run, aggregate, reviewerResults });
   run = { ...run, status: aggregate.status, completedAt: new Date().toISOString() };
   await writeDesignReviewRun(layout, run);
-  return { reviewRunId: run.reviewRunId, mode, status: aggregate.status, designRef: artifact.ref, aggregate, readiness: aggregate.readiness, ledgerPath: run.ledgerPath };
+  return { reviewRunId: run.reviewRunId, mode, status: aggregate.status, designRef: artifact.ref, aggregate, triage, readiness: aggregate.readiness, enhancedReadiness: triage.readiness, triageSummary: triage.summary, ledgerPath: run.ledgerPath };
 }

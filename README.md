@@ -38,7 +38,7 @@ The runtime pauses at mandatory gates:
 - `awaiting-plan-review-decision` — inspect current `requirements.md` and `tasks.md` refs and choose plan review depth.
 - `awaiting-plan-approval` — approve exact requirements/tasks refs before execution can start.
 
-Blocked, failed, and terminal states do not auto-advance on resume. A partial full design review is reported as blocked with `reason = "incomplete-design-review"`, `status = "partial"`, and readiness `incomplete-review`; it is not a passed review. Runtime status may expose recovery actions such as retrying failed reviewers, explicitly accepting a safe incomplete review, replacing reviewer selection, or viewing the review ledger. Accept incomplete is a separate explicit user decision and still only moves the workflow to the design approval gate; it never approves design or starts planning.
+Blocked, failed, and terminal states do not auto-advance on resume. A partial full design review is reported as blocked with `reason = "incomplete-design-review"`, `status = "partial"`, and readiness `incomplete-review`; it is not a passed review. Design review now also writes a deterministic triage report that groups findings into must-fix, should-fix, and note tiers, surfaces conflicts and unresolved questions, and preserves incomplete coverage truthfully. Triage readiness is advisory only: stale or checksum-mismatched triage is ignored, `ready-for-user-approval` still requires the explicit design approval gate, and blocked/incomplete/failed/skipped summaries never imply approval. Runtime status may expose recovery actions such as retrying failed reviewers, explicitly accepting a safe incomplete review, replacing reviewer selection, or viewing the review ledger. Accept incomplete is a separate explicit user decision and still only moves the workflow to the design approval gate; it never approves design or starts planning.
 
 ## Skill phase adapters
 
@@ -78,6 +78,7 @@ specs/<topic>/
           coverage.json
           aggregated-findings.json
           readiness.json
+          triage-report.json
           accept-incomplete-decision.json
     runs/<run-id>/
       state.json

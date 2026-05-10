@@ -4,7 +4,8 @@ import { randomUUID } from "node:crypto";
 import type { WorkflowLayout } from "../../artifact-store.ts";
 import { assertWorkflowPath } from "../../artifact-store.ts";
 import { writeWorkflowAtomicJson } from "../../atomic-json.ts";
-import type { AcceptIncompleteDesignReviewDecision, DesignApprovalReadiness, DesignReviewAggregateResult, DesignReviewCoverage, DesignReviewerResult, DesignReviewMode, DesignReviewRun } from "./types.ts";
+import { validateDesignReviewTriageReport } from "./triage-schemas.ts";
+import type { AcceptIncompleteDesignReviewDecision, DesignApprovalReadiness, DesignReviewAggregateResult, DesignReviewCoverage, DesignReviewerResult, DesignReviewMode, DesignReviewRun, DesignReviewTriageReport } from "./types.ts";
 import type { VersionedArtifactRef } from "../../types.ts";
 export { writeDesignReviewAttempt, writeAttemptReviewerResult } from "./review-attempt-store.ts";
 
@@ -65,6 +66,16 @@ export async function writeAcceptIncompleteDecision(layout: WorkflowLayout, run:
   await writeWorkflowAtomicJson(path.join(ledgerDir(layout, run), "accept-incomplete-decision.json"), decision);
 }
 
+export async function writeTriageReport(layout: WorkflowLayout, run: DesignReviewRun, report: DesignReviewTriageReport): Promise<DesignReviewTriageReport> {
+  assertTriageSourcePaths(layout, run, report);
+  await writeWorkflowAtomicJson(triageReportPath(layout, run), report);
+  return report;
+}
+
+export async function writeUserSummary(layout: WorkflowLayout, run: DesignReviewRun, summary: string): Promise<void> {
+  await writeWorkflowAtomicJson(path.join(ledgerDir(layout, run), "user-summary.json"), { summary });
+}
+
 export async function readDesignReviewRun(layout: WorkflowLayout, run: DesignReviewRun): Promise<DesignReviewRun> {
   return await readLedgerJson<DesignReviewRun>(layout, run, "review-run.json");
 }
@@ -79,6 +90,11 @@ export async function readAggregatedFindings(layout: WorkflowLayout, run: Design
 
 export async function readReadiness(layout: WorkflowLayout, run: DesignReviewRun): Promise<DesignApprovalReadiness> {
   return await readLedgerJson<DesignApprovalReadiness>(layout, run, "readiness.json");
+}
+
+export async function readTriageReport(layout: WorkflowLayout, run: DesignReviewRun): Promise<DesignReviewTriageReport> {
+  const report = await readLedgerJson<DesignReviewTriageReport>(layout, run, "triage-report.json");
+  return validateDesignReviewTriageReport(report);
 }
 
 export async function readReviewerResults(layout: WorkflowLayout, run: DesignReviewRun): Promise<DesignReviewerResult[]> {
@@ -103,6 +119,22 @@ export async function validateReviewLedgerConsistency(layout: WorkflowLayout, ru
   if (aggregate.designRef.checksum !== run.designRef.checksum || aggregate.designRef.version !== run.designRef.version) throw new Error("Review aggregate design ref mismatch.");
   if (JSON.stringify(aggregate.coverage) !== JSON.stringify(coverage)) throw new Error("Review aggregate coverage does not match coverage ledger.");
   if (aggregate.readiness.status !== readiness.status) throw new Error("Review readiness does not match aggregate readiness.");
+}
+
+function triageReportPath(layout: WorkflowLayout, run: DesignReviewRun): string {
+  const filePath = path.join(ledgerDir(layout, run), "triage-report.json");
+  assertWorkflowPath(layout, filePath);
+  return filePath;
+}
+
+function assertTriageSourcePaths(layout: WorkflowLayout, run: DesignReviewRun, report: DesignReviewTriageReport): void {
+  assertWorkflowPath(layout, path.resolve(layout.topicDir, report.sources.aggregate.path));
+  if (report.sources.coverage) assertWorkflowPath(layout, path.resolve(layout.topicDir, report.sources.coverage.path));
+  for (const result of report.sources.reviewerResults) {
+    assertWorkflowPath(layout, path.resolve(layout.topicDir, result.path));
+  }
+  if (report.reviewRunId !== run.reviewRunId) throw new Error("Triage report review run id mismatch.");
+  if (report.designRef.checksum !== run.designRef.checksum || report.designRef.version !== run.designRef.version) throw new Error("Triage report design ref mismatch.");
 }
 
 async function readLedgerJson<T>(layout: WorkflowLayout, run: DesignReviewRun, name: string): Promise<T> {

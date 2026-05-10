@@ -80,6 +80,9 @@ export type ReviewPhaseStatus = {
   artifacts: VersionedArtifactRef[];
   reason?: string;
   readinessStatus?: string;
+  enhancedReadiness?: unknown;
+  triageSummary?: string;
+  triage?: unknown;
   coverage?: unknown;
   recoveryActions?: unknown[];
   completedAt?: string;

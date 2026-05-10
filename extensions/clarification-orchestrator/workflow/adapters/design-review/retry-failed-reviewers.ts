@@ -7,6 +7,7 @@ import { aggregatePartialDesignReviewFindings } from "./partial-aggregation.ts";
 import { computeDesignReviewCoverage } from "./review-coverage.ts";
 import { completeDesignReviewAttempt, createDesignReviewAttempt, writeAttemptReviewerResult } from "./review-attempt-store.ts";
 import { readCoverage, readReviewerResults, validateReviewLedgerConsistency, writeAggregatedFindings, writeCoverage, writeDesignReviewRun, writeReadiness, writeReviewerResult } from "./review-run-store.ts";
+import { buildAndWriteDesignReviewTriage } from "./triage-ledger.ts";
 import { runDesignReviewers, type FullDesignReviewerRole, type ReviewerCoordinatorOptions } from "./reviewer-coordinator.ts";
 import type { DesignReviewPanelResult, DesignReviewRun, DesignReviewerResult } from "./types.ts";
 
@@ -61,9 +62,10 @@ export async function retryFailedDesignReviewers(input: {
     : aggregateDesignReviewFindings({ reviewRunId: run.reviewRunId, designRef: artifact.ref, findings: successfulResults.flatMap((result) => result.findings), forcedStatus: failedResults.length > 0 ? "failed" : undefined, coverage });
   run = await writeAggregatedFindings(input.layout, run, aggregate);
   run = await writeReadiness(input.layout, run, aggregate.readiness);
+  const triage = await buildAndWriteDesignReviewTriage({ layout: input.layout, run, aggregate, reviewerResults: effective });
   run = { ...run, status: aggregate.status, error: failedResults[0]?.error, completedAt: new Date().toISOString() };
   await writeDesignReviewRun(input.layout, run);
-  return { reviewRunId: run.reviewRunId, mode: run.mode, status: aggregate.status, designRef: artifact.ref, aggregate, readiness: aggregate.readiness, ledgerPath: run.ledgerPath, error: run.error };
+  return { reviewRunId: run.reviewRunId, mode: run.mode, status: aggregate.status, designRef: artifact.ref, aggregate, triage, readiness: aggregate.readiness, enhancedReadiness: triage.readiness, triageSummary: triage.summary, ledgerPath: run.ledgerPath, error: run.error };
 }
 
 function mergeEffectiveResults(previous: readonly DesignReviewerResult[], retry: readonly DesignReviewerResult[]): DesignReviewerResult[] {
