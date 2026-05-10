@@ -544,8 +544,9 @@ specs/design-review-panel/design.md
 
 ```text
 Spec 5.1: design-reviewer-role-pack
-Spec 5.2: design-review-triage-and-readiness
-Spec 5.3: design-revision-loop
+Spec 5.2: design-review-execution-control
+Spec 5.3: design-review-triage-and-readiness
+Spec 5.4: design-revision-loop
 ```
 
 #### Spec 5.1: `design-reviewer-role-pack`
@@ -556,7 +557,7 @@ Spec 5.3: design-revision-loop
 specs/design-reviewer-role-pack/design.md
 ```
 
-定位：在 Spec 5 定义的 review run、finding schema、ledger 和 version-binding contract 上，实现完整 `full` design review reviewer role pack。该 spec 让 `full` review 从 `unavailable` 变成可执行，但不能重新定义 Spec 5 的生命周期、ledger、approval gate 或 state authority。
+定位：在 Spec 5 定义的 review run、finding schema、ledger 和 version-binding contract 上，实现完整 `full` design review reviewer role pack。该 spec 让 `full` review 从 `unavailable` 变成可执行，但不能重新定义 Spec 5 的生命周期、ledger、approval gate 或 state authority。Spec 5.1 聚焦 reviewer capability 本身；用户可选择 reviewer subset、partial aggregation、failed reviewer retry 和 accept incomplete review 属于后续 Spec 5.2 `design-review-execution-control`。
 
 包含：
 
@@ -568,10 +569,11 @@ specs/design-reviewer-role-pack/design.md
 - reviewer role registration / role policy 扩展；
 - per-role prompt/system prompt；
 - per-role structured output schema；
-- full mode reviewer set resolution；
+- full mode reviewer set resolution，首版默认解析为完整五角色集合；
 - parallel reviewer execution through `agent-execution-runtime`；
-- per-reviewer timeout、failure、partial result policy；
+- per-reviewer timeout、failure、invalid-output policy；
 - reviewer result normalization into Spec 5 `DesignReviewFinding`；
+- 为后续 Spec 5.2 预留 internal selected-role execution extension point，但不暴露用户选择 UX；
 - role-specific fixtures and tests。
 
 不包含：
@@ -579,6 +581,10 @@ specs/design-reviewer-role-pack/design.md
 - review run lifecycle 重新设计；
 - review ledger layout 重新设计；
 - approval readiness contract 重新设计；
+- user-selectable reviewer subset；
+- partial-success aggregation；
+- failed reviewer retry；
+- accept incomplete review decision；
 - advanced triage；
 - automatic design revision loop；
 - design approval automation。
@@ -589,7 +595,44 @@ specs/design-reviewer-role-pack/design.md
 - `agent-execution-runtime`。
 - `skill-phase-adapters` 中的 brainstorming adapter。
 
-#### Spec 5.2: `design-review-triage-and-readiness`
+#### Spec 5.2: `design-review-execution-control`
+
+建议路径：
+
+```text
+specs/design-review-execution-control/design.md
+```
+
+定位：在 Spec 5.1 full reviewer role pack 可用后，为 design review 增加用户可控的 reviewer subset、partial-success aggregation、failed reviewer retry 和 explicit accept-incomplete gate。该 spec 处理 review execution control 和 recovery semantics，不实现 reviewer prompt，不做 advanced triage，不自动 revise design，也不自动 approve design。
+
+包含：
+
+- reviewer selection decision model，作为 design review decision 的扩展并绑定 exact design artifact version/checksum；
+- full review 默认全选五个 reviewer，但允许用户选择一个或多个 reviewer subset；
+- selected / unselected / succeeded / failed reviewer coverage model；
+- partial-success aggregation：成功 reviewer 的 findings 进入 aggregation，失败 reviewer 记录 diagnostics；
+- `partial` review status 和 `incomplete-review` readiness；
+- failed reviewer retry，优先只重试失败 reviewer，并保持同一 design artifact binding；
+- explicit accept-incomplete decision：当至少一个 selected reviewer 成功、无 blocking findings、且仍有 failed reviewer 时，用户可显式接受 incomplete review 并进入 design approval gate；
+- retry / accept-incomplete / reviewer selection 的 event log 和 ledger attempt model；
+- `--resume` / status 的 recovery contract，供 Spec 7 UX 实现展示。
+
+不包含：
+
+- 五个 reviewer prompt / system prompt；
+- reviewer role implementation；
+- advanced triage、deduplication 或 conflict resolution；
+- automatic design revision loop；
+- plan review；
+- design approval automation。
+
+依赖：
+
+- `design-review-panel`。
+- `design-reviewer-role-pack`。
+- `workflow-runtime-orchestrator` 的 review decision / resume gate contract。
+
+#### Spec 5.3: `design-review-triage-and-readiness`
 
 建议路径：
 
@@ -597,7 +640,7 @@ specs/design-reviewer-role-pack/design.md
 specs/design-review-triage-and-readiness/design.md
 ```
 
-定位：增强 Spec 5 的基础 aggregation/readiness，把多 reviewer findings 转换成更稳定、用户可理解、可驱动 revision 的 triage 和 approval readiness report。该 spec 聚焦 finding deduplication、冲突处理、must-fix/should-fix/note 分类和 unresolved question summary，不负责 reviewer prompt 或 revision 写作。
+定位：增强 Spec 5 的基础 aggregation/readiness 和 Spec 5.2 的 reviewer coverage/incomplete review 结果，把多 reviewer findings 转换成更稳定、用户可理解、可驱动 revision 的 triage 和 approval readiness report。该 spec 聚焦 finding deduplication、冲突处理、must-fix/should-fix/note 分类和 unresolved question summary，不负责 reviewer prompt、reviewer selection/retry 或 revision 写作。
 
 包含：
 
@@ -606,6 +649,7 @@ specs/design-review-triage-and-readiness/design.md
 - blocking vs non-blocking classification refinement；
 - must-fix / should-fix / note 分层；
 - approval readiness report；
+- incomplete review coverage summary；
 - unresolved user question summary；
 - user-facing review summary；
 - deterministic merge + optional agent summary 的边界；
@@ -615,6 +659,7 @@ specs/design-review-triage-and-readiness/design.md
 
 - reviewer role prompt；
 - full reviewer pack；
+- reviewer selection / retry mechanics；
 - design artifact mutation；
 - automatic revision loop；
 - design approval automation。
@@ -622,9 +667,10 @@ specs/design-review-triage-and-readiness/design.md
 依赖：
 
 - `design-review-panel`。
-- `design-reviewer-role-pack` 可选；Spec 5.2 应能处理 minimal 和 full 两种 reviewer result set。
+- `design-reviewer-role-pack` 可选但 recommended；Spec 5.3 应能处理 minimal、full、custom subset 和 incomplete review result set。
+- `design-review-execution-control`。
 
-#### Spec 5.3: `design-revision-loop`
+#### Spec 5.4: `design-revision-loop`
 
 建议路径：
 
@@ -632,7 +678,7 @@ specs/design-review-triage-and-readiness/design.md
 specs/design-revision-loop/design.md
 ```
 
-定位：根据 blocking findings 和 unresolved questions 驱动受控 design revision loop。该 spec 使用 Spec 4 的 brainstorming/design reviser 基础和 Spec 5/5.2 的 review outputs 生成新版 `design.md`，然后重新绑定新 artifact version 并重新 review。它不能自动 approve design，且必须有 max revision/review rounds 和用户问题回退机制。
+定位：根据 blocking findings 和 unresolved questions 驱动受控 design revision loop。该 spec 使用 Spec 4 的 brainstorming/design reviser 基础和 Spec 5/5.3 的 review outputs 生成新版 `design.md`，然后重新绑定新 artifact version 并重新 review。它不能自动 approve design，且必须有 max revision/review rounds 和用户问题回退机制。
 
 包含：
 
@@ -661,6 +707,7 @@ specs/design-revision-loop/design.md
 
 - `design-review-panel`。
 - `design-review-triage-and-readiness`。
+- `design-review-execution-control`。
 - `skill-phase-adapters` 中的 brainstorming adapter / design reviser foundation。
 - `agent-execution-runtime`。
 
@@ -708,6 +755,10 @@ specs/workflow-ux-interface/design.md
 - `--status`；
 - 多 pending workflow 选择；
 - review mode decision 展示；
+- design full review reviewer selection 展示，包括默认全选、选择一个或多个 reviewer、展示 reviewer role 说明和 exact design artifact binding；
+- partial / incomplete review 状态展示，包括 selected / unselected / succeeded / failed reviewer coverage；
+- failed reviewer retry 交互，包括只重试失败 reviewer、重新选择 reviewer set、退出或查看 ledger/status；
+- accept incomplete review 交互，包括明确提示 incomplete coverage、失败 reviewer 列表、已聚合 findings，以及用户显式确认后才允许进入 design approval gate；
 - approval decision 展示；
 - review summary 展示；
 - blocked/failed recovery hints；
@@ -718,6 +769,7 @@ specs/workflow-ux-interface/design.md
 依赖：
 
 - `workflow-runtime-orchestrator`。
+- `design-review-execution-control`，用于 reviewer selection、partial retry 和 accept incomplete review 的完整交互；基础 UX 可先定义 extension slots，待 Spec 5.2 后增强。
 - 可在 review panels 之前先做基础 UX，后续再增强展示。
 
 #### Spec 8: `workflow-tui-live-progress`
@@ -774,7 +826,13 @@ Runtime pauses at awaiting-design-review-decision
   ↓
 User resumes and selects design review mode: skip | minimal | full
   ↓
+If full, user may also select reviewer subset for the current design version
+  ↓
 DesignReviewPanel reviews design, or review is explicitly skipped by user decision
+  ↓
+Successful reviewer findings enter aggregation; failed reviewer attempts remain retryable
+  ↓
+If review is incomplete, user may retry failed reviewers or explicitly accept incomplete review
   ↓
 Triage/revision loop resolves blocking issues when review runs
   ↓
@@ -804,7 +862,7 @@ Runtime marks workflow done or blocked
 第一阶段落地时，review panels 可以分层演进：
 
 ```text
-DesignReviewPanel foundation: user-selected skip/minimal/full，minimal 走真实 review run + finding schema + ledger，full 可显式 unavailable，后续由 Spec 5.1 实现
+DesignReviewPanel foundation: user-selected skip/minimal/full，minimal 走真实 review run + finding schema + ledger，full 可显式 unavailable，后续由 Spec 5.1 实现五角色 role pack，并由 Spec 5.2 增强 reviewer selection、partial retry 和 accept incomplete review
 PlanReviewAdapter: user-selected skip or minimal
 Controlled SpecExecAdapter: code-owned task loop with per-task evidence and blockers
 ```
@@ -883,6 +941,8 @@ Reviewer 输出 findings。Design/task 修改应由 revision phase 或 adapter �
 - `minimal` review 使用统一 finding schema、aggregation 和 ledger。
 - `full` review 在 role pack 未实现时显式返回 unavailable，且不能静默降级。
 - 多 reviewer 并发执行。
+- full reviewer role pack 默认执行完整五角色集合。
+- reviewer selection、partial aggregation、failed reviewer retry 和 accept incomplete review 的 execution-control 行为。
 - findings aggregation。
 - conflicting reviews triage。
 - blocking issue 阻止 approval readiness。
@@ -909,14 +969,16 @@ Reviewer 输出 findings。Design/task 修改应由 revision phase 或 adapter �
 这些问题应在后续子 spec 中解决，而不是在本文档中一次性定死：
 
 1. `brainstorming-pro`、`spec-plan-pro`、`spec-exec-pro` phase adapter 应直接调用内部模块，还是通过 isolated child Pi process 调用？
-2. Multi-agent review 的默认 reviewer 数量和角色是否可配置？
-3. `design-review-triage-and-readiness` 中 advanced triage 应采用多大比例的 deterministic merge 与 optional agent summary？
-4. `design-revision-loop` 中哪些 blocking findings 可以自动修订，哪些必须先询问用户？
-5. Plan review failed 后是否自动重新生成 tasks？
-6. Controlled execution blocked 后应如何通过 `--resume` 选择 retry、abort、处理 missing dependency 或请求 plan revision？
-7. 是否需要 background async runner？如果需要，应在 workflow runtime 稳定后单独设计。
-8. 是否公开 Pi tool interface？如果公开，如何避免父 LLM 绕过 workflow command/gate？
-9. 是否支持从 `events.jsonl` 自动重建损坏的 `state.json`？
+2. Multi-agent review 的默认 reviewer 数量和角色是否可配置？Spec 5.2 已确认 design review 应支持用户选择 reviewer subset；默认值、快捷选项和 UX 细节仍需在该 spec / Spec 7 中细化。
+3. Spec 5.2 中 failed reviewer retry 应复用同一 review run 追加 attempts，还是创建 linked retry run？
+4. Spec 5.2 中 accept incomplete review 的 decision/ref/event schema 应如何绑定 failed reviewer coverage，才能避免被误认为完整 review passed？
+5. `design-review-triage-and-readiness` 中 advanced triage 应采用多大比例的 deterministic merge 与 optional agent summary？
+6. `design-revision-loop` 中哪些 blocking findings 可以自动修订，哪些必须先询问用户？
+7. Plan review failed 后是否自动重新生成 tasks？
+8. Controlled execution blocked 后应如何通过 `--resume` 选择 retry、abort、处理 missing dependency 或请求 plan revision？
+9. 是否需要 background async runner？如果需要，应在 workflow runtime 稳定后单独设计。
+10. 是否公开 Pi tool interface？如果公开，如何避免父 LLM 绕过 workflow command/gate？
+11. 是否支持从 `events.jsonl` 自动重建损坏的 `state.json`？
 
 Planning 和 execution 行为必须通过 runtime phases/adapters 暴露，并由 `/brainstorm-pro` runtime 统一触发、校验和持久化。
 
@@ -943,9 +1005,11 @@ Planning 和 execution 行为必须通过 runtime phases/adapters 暴露，并�
    ↓
 7.1 design-reviewer-role-pack
    ↓
-7.2 design-review-triage-and-readiness
+7.2 design-review-execution-control
    ↓
-7.3 design-revision-loop
+7.3 design-review-triage-and-readiness
+   ↓
+7.4 design-revision-loop
    ↓
 8. plan-review-panel
    ↓
