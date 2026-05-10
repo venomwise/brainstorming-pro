@@ -1,6 +1,6 @@
 import { createBrainstormingAdapter } from "./brainstorming.ts";
 import { createSpecPlanAdapter } from "./spec-plan.ts";
-import { specExecAdapter } from "./spec-exec.ts";
+import { createSpecExecAdapter, specExecAdapter } from "./spec-exec.ts";
 import { createAdapterRegistry, type PhaseAdapter } from "./types.ts";
 import type { WorkflowAdapter } from "../runtime.ts";
 import type { WorkflowState } from "../types.ts";
@@ -12,7 +12,7 @@ export function defaultWorkflowAdapters(projectRoot: string, model = process.env
   return {
     designing: asWorkflowAdapter(createBrainstormingAdapter({ projectRoot, model })),
     planning: asWorkflowAdapter(createSpecPlanAdapter({ projectRoot, model })),
-    executing: asWorkflowAdapter(specExecAdapter),
+    executing: asWorkflowAdapter(createSpecExecAdapter({ projectRoot, model })),
   };
 }
 
