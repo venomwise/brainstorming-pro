@@ -114,6 +114,9 @@ export type DesignReviewRecoveryAction =
   | { type: "retry-failed-reviewers"; reviewRunId: string; reviewerRoles: FullDesignReviewerRole[] }
   | { type: "accept-incomplete-review"; reviewRunId: string; designRef: VersionedArtifactRef; coverage: DesignReviewCoverage }
   | { type: "replace-review-selection"; designRef: VersionedArtifactRef; availableReviewerRoles: FullDesignReviewerRole[] }
+  | { type: "revise-design-once"; reviewRunId: string; designRef: VersionedArtifactRef; blockingQuestionIds?: string[]; ledgerPath: string }
+  | { type: "answer-design-revision-questions"; reviewRunId: string; designRef: VersionedArtifactRef; questionIds: string[] }
+  | { type: "post-revision-handoff"; revisionId: string; revisedDesignRef: VersionedArtifactRef; postRevisionReviewRunId: string; readinessStatus?: string; triageSummary?: string }
   | { type: "view-review-ledger"; reviewRunId: string; ledgerPath: string };
 
 export type DesignReviewAggregateResult = {

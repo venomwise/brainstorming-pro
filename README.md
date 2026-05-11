@@ -38,7 +38,9 @@ The runtime pauses at mandatory gates:
 - `awaiting-plan-review-decision` — inspect current `requirements.md` and `tasks.md` refs and choose plan review depth.
 - `awaiting-plan-approval` — approve exact requirements/tasks refs before execution can start.
 
-Blocked, failed, and terminal states do not auto-advance on resume. A partial full design review is reported as blocked with `reason = "incomplete-design-review"`, `status = "partial"`, and readiness `incomplete-review`; it is not a passed review. Design review now also writes a deterministic triage report that groups findings into must-fix, should-fix, and note tiers, surfaces conflicts and unresolved questions, and preserves incomplete coverage truthfully. Triage readiness is advisory only: stale or checksum-mismatched triage is ignored, `ready-for-user-approval` still requires the explicit design approval gate, and blocked/incomplete/failed/skipped summaries never imply approval. Runtime status may expose recovery actions such as retrying failed reviewers, explicitly accepting a safe incomplete review, replacing reviewer selection, or viewing the review ledger. Accept incomplete is a separate explicit user decision and still only moves the workflow to the design approval gate; it never approves design or starts planning.
+Blocked, failed, and terminal states do not auto-advance on resume. A partial full design review is reported as blocked with `reason = "incomplete-design-review"`, `status = "partial"`, and readiness `incomplete-review`; it is not a passed review. Design review now also writes a deterministic triage report that groups findings into must-fix, should-fix, and note tiers, surfaces conflicts and unresolved questions, and preserves incomplete coverage truthfully. Triage readiness is advisory only: stale or checksum-mismatched triage is ignored, `ready-for-user-approval` still requires the explicit design approval gate, and blocked/incomplete/failed/skipped summaries never imply approval. Runtime status may expose recovery actions such as revising the design once from bound review evidence, answering blocking revision questions, retrying failed reviewers, explicitly accepting a safe incomplete review, replacing reviewer selection, or viewing the review ledger. Accept incomplete is a separate explicit user decision and still only moves the workflow to the design approval gate; it never approves design or starts planning.
+
+A design revision authorization is single-use: one user authorization permits at most one runtime-owned revised `design` artifact commit and one automatic post-revision design review. The reviser agent can only return complete replacement design markdown plus structured metadata; it cannot write files, approve design, retry reviewers, accept incomplete reviews, or enter planning. After a revised design commits, prior review/triage/readiness evidence remains provenance only and cannot approve the new design ref. Post-revision review results are shown in status/resume as a handoff with the revised design ref, post-review run id, readiness/triage summary, and next recovery actions. If post-review passes, the workflow stops at the explicit design approval gate; if it blocks, fails, is partial, or is unavailable, the workflow pauses for user decision and does not auto-revise again.
 
 ## Skill phase adapters
 
@@ -80,6 +82,17 @@ specs/<topic>/
           readiness.json
           triage-report.json
           accept-incomplete-decision.json
+    revisions/
+      design/
+        <revision-id>/
+          authorization.json
+          request.json
+          prompt.md
+          system-prompt.md
+          child-result.json
+          output.json
+          validation.json
+          record.json
     runs/<run-id>/
       state.json
 ```

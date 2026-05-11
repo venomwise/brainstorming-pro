@@ -85,6 +85,12 @@ export type ReviewPhaseStatus = {
   triage?: unknown;
   coverage?: unknown;
   recoveryActions?: unknown[];
+  revisionHandoff?: {
+    revisionId: string;
+    revisedDesignRef: VersionedArtifactRef;
+    postRevisionReviewRunId?: string;
+    blockingQuestionIds?: string[];
+  };
   completedAt?: string;
 };
 

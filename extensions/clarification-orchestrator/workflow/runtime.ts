@@ -7,7 +7,9 @@ import { appendWorkflowEvent } from "./events.ts";
 import { transition, type TransitionContext } from "./state-machine.ts";
 import { defaultWorkflowAdapters } from "./adapters/registry.ts";
 import { isAdapterPhaseResult, type AdapterPhaseResult } from "./adapters/types.ts";
-import type { ApprovalRef, ReviewDecisionRef, ReviewMode, UserDecisionRequest, VersionedArtifactRef, WorkflowErrorSnapshot, WorkflowPhase, WorkflowState } from "./types.ts";
+import type { ApprovalRef, ReviewDecisionRef, ReviewMode, ReviewPhaseStatus, UserDecisionRequest, VersionedArtifactRef, WorkflowErrorSnapshot, WorkflowPhase, WorkflowState } from "./types.ts";
+import type { DesignReviewPanelResult } from "./adapters/design-review/types.ts";
+import type { DesignRevisionRecord } from "./adapters/design-revision/types.ts";
 
 export type WorkflowBootstrapInput = {
   cwd: string;
@@ -40,6 +42,7 @@ export type WorkflowRuntimeStatus = {
   artifacts: WorkflowState["artifacts"];
   reviewStatus: WorkflowState["reviewStatus"];
   lastError?: WorkflowErrorSnapshot;
+  revisionHandoff?: ReviewPhaseStatus["revisionHandoff"];
 };
 
 export type ResumeWorkflowInput = {
@@ -324,7 +327,47 @@ export async function discoverWorkflowTopics(cwd: string): Promise<string[]> {
 }
 
 export function renderWorkflowStatus(state: WorkflowState): WorkflowRuntimeStatus {
-  return { topic: state.topic, runId: state.runId, phase: state.phase, pendingDecision: state.pendingDecision, artifacts: state.artifacts, reviewStatus: state.reviewStatus, lastError: state.lastError };
+  return { topic: state.topic, runId: state.runId, phase: state.phase, pendingDecision: state.pendingDecision, artifacts: state.artifacts, reviewStatus: state.reviewStatus, lastError: state.lastError, revisionHandoff: state.reviewStatus.design?.revisionHandoff };
+}
+
+export function applyPostRevisionReviewResultToState(state: WorkflowState, result: DesignReviewPanelResult, record: DesignRevisionRecord): WorkflowState {
+  if (!record.targetDesignRef) throw new Error("Post-revision review handoff requires a revised design ref.");
+  const revisionHandoff = {
+    revisionId: record.revisionId,
+    revisedDesignRef: record.targetDesignRef,
+    postRevisionReviewRunId: result.reviewRunId,
+  };
+  const recoveryActions = [
+    ...((state.reviewStatus.design?.recoveryActions as unknown[] | undefined) ?? []),
+    { type: "post-revision-handoff", revisionId: record.revisionId, revisedDesignRef: record.targetDesignRef, postRevisionReviewRunId: result.reviewRunId, readinessStatus: result.enhancedReadiness?.status ?? result.readiness.status, triageSummary: result.triageSummary },
+  ];
+  const reviewStatus: ReviewPhaseStatus = {
+    target: "design",
+    mode: result.mode,
+    status: result.status,
+    artifacts: [record.targetDesignRef],
+    readinessStatus: result.enhancedReadiness?.status ?? result.readiness.status,
+    enhancedReadiness: result.enhancedReadiness,
+    triageSummary: result.triageSummary,
+    triage: result.triage ? { mustFix: result.triage.clusters.filter((cluster) => cluster.triageLevel === "must-fix").length, shouldFix: result.triage.clusters.filter((cluster) => cluster.triageLevel === "should-fix").length, notes: result.triage.clusters.filter((cluster) => cluster.triageLevel === "note").length, conflicts: result.triage.conflicts.length, unresolvedQuestions: result.triage.unresolvedQuestions.length } : undefined,
+    coverage: result.aggregate?.coverage,
+    recoveryActions,
+    revisionHandoff,
+    ...(result.status === "failed" && result.error ? { reason: result.error.message } : {}),
+    ...(result.status === "partial" ? { reason: "incomplete-design-review" } : {}),
+    ...(result.status === "unavailable" ? { reason: result.unavailableReason } : {}),
+    completedAt: new Date().toISOString(),
+  };
+  const phase: WorkflowPhase = result.status === "passed" ? "awaiting-design-approval" : "blocked";
+  return {
+    ...state,
+    phase,
+    artifacts: { ...state.artifacts, design: record.targetDesignRef },
+    reviewStatus: { ...state.reviewStatus, design: reviewStatus },
+    pendingDecision: undefined,
+    ...(phase === "blocked" ? { lastError: { message: "post-revision-review-requires-user-decision", phase: "design-review" as const, recoverable: true, occurredAt: new Date().toISOString(), details: { recoveryActions, revisionHandoff } } } : { lastError: undefined }),
+    updatedAt: new Date().toISOString(),
+  };
 }
 
 function withPendingDecision(state: WorkflowState): WorkflowState {

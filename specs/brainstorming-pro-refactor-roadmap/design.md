@@ -678,20 +678,22 @@ specs/design-review-triage-and-readiness/design.md
 specs/design-revision-loop/design.md
 ```
 
-定位：根据 blocking findings 和 unresolved questions 驱动受控 design revision loop。该 spec 使用 Spec 4 的 brainstorming/design reviser 基础和 Spec 5/5.3 的 review outputs 生成新版 `design.md`，然后重新绑定新 artifact version 并重新 review。它不能自动 approve design，且必须有 max revision/review rounds 和用户问题回退机制。
+定位：根据 blocking findings、must-fix triage items 和 unresolved questions 驱动受控 design revision transaction。该 spec 使用 Spec 4 的 brainstorming/design reviser 基础和 Spec 5/5.3 的 review outputs，在用户显式单次授权后生成新版 `design.md`，重新绑定新 artifact version，并立即对新版 design 执行一次 re-review；re-review 结果必须交还给用户，由用户决定批准、再次授权 revision、回答问题、retry/review 或停止。它不能自动 approve design，也不能在一次授权内连续自动 revision；max revision/review rounds 是整个 workflow 的累计安全上限，而不是一次授权内的自动循环次数。
 
 包含：
 
+- single-use `DesignRevisionAuthorization` schema，绑定 source design/review/triage 和授权的 review-after-revision 设置；
 - `DesignRevisionRequest` schema；
 - design-reviser role integration；
 - revision prompt/system prompt；
 - revised design output schema；
 - artifact commit request for new design version；
-- stale review invalidation；
-- max revision rounds / max review rounds；
+- stale review invalidation：旧 review/triage 只能作为 revision provenance，不能作为新版 design 的 approval evidence；
+- cumulative max revision rounds / max post-revision review rounds；
 - unresolved user question handling；
 - blocked recovery semantics；
-- review-after-revision loop；
+- one revision + one automatic re-review transaction；
+- post re-review user decision handoff；
 - revision ledger / event integration。
 
 不包含：

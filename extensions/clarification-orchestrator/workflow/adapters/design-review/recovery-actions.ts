@@ -20,6 +20,12 @@ export function buildDesignReviewRecoveryActions(input: {
   if (input.readiness.status === "incomplete-review" && coverage && isSafeAcceptIncomplete(coverage, input)) {
     actions.push({ type: "accept-incomplete-review", reviewRunId: input.reviewRunId, designRef: input.designRef, coverage });
   }
+  if (!input.staleArtifact && input.ledgerHealthy !== false && (input.readiness.status === "blocked" || input.readiness.blockingFindingIds.length > 0)) {
+    actions.push({ type: "revise-design-once", reviewRunId: input.reviewRunId, designRef: input.designRef, blockingQuestionIds: input.readiness.unresolvedUserQuestions, ledgerPath: input.ledgerPath ?? "" });
+  }
+  if (!input.staleArtifact && input.readiness.unresolvedUserQuestions.length > 0) {
+    actions.push({ type: "answer-design-revision-questions", reviewRunId: input.reviewRunId, designRef: input.designRef, questionIds: input.readiness.unresolvedUserQuestions });
+  }
   if (input.staleArtifact || input.status === "failed") {
     actions.push({ type: "replace-review-selection", designRef: input.designRef, availableReviewerRoles: [...FULL_DESIGN_REVIEWER_ORDER] });
   }
