@@ -1,0 +1,225 @@
+# Implementation Plan: Plan Review Panel
+
+## Overview
+
+This implementation plan is driven by the requirements in [requirements.md](requirements.md).
+
+Implementation proceeds in eight phases. First, define the plan-review domain types, schemas, artifact binding, and shape validation foundation. Next, implement the fixed reviewer registry and parallel reviewer execution. Then add finding normalization, deterministic aggregation, readiness, and durable review ledger support. After the core panel works, replace the placeholder adapter and integrate automatic plan review with the runtime. The second half adds automatic-once plan revision, post-revision re-review, status/resume/event visibility, and tests/security coverage. The implementation uses TypeScript ES modules, the existing workflow adapter contracts, existing artifact/version/event helpers, the Agent Execution Runtime, and the controlled spec-exec task parser where applicable.
+
+## Tasks
+
+- [ ] 1. Phase 1: Plan review domain model and schemas
+  - [ ] 1.1 Create plan-review type definitions
+    - Create `extensions/clarification-orchestrator/workflow/adapters/plan-review/types.ts` with `PlanReviewerRole`, `PlanReviewArtifactBinding`, `PlanReviewFinding`, `PlanReviewAggregate`, `PlanApprovalReadiness`, `PlanReviewRun`, `PlanReviewPanelRequest`, `PlanReviewPanelResult`, `PlanRevisionPolicy`, and `PlanRevisionAgentOutput`
+    - Ensure `PlanReviewerRole` is exactly `requirements-coverage-reviewer | task-coverage-reviewer | dependency-order-reviewer`
+    - Model readiness statuses as `ready-for-plan-approval | blocked-needs-plan-revision | blocked-needs-design-revision | failed | stale`
+    - _Requirements: 1.1, 1.2, 4.1, 4.2, 6.1, 7.1_
+  - [ ] 1.2 Add schema validators for reviewer and reviser output
+    - Create `extensions/clarification-orchestrator/workflow/adapters/plan-review/schemas.ts` with runtime validators for reviewer output, normalized finding drafts, aggregate/readiness payloads, and `PlanRevisionAgentOutput`
+    - Reject approval directives, execution directives, workflow-state mutation claims, unsupported artifacts, missing recommendations for blocking findings, and invalid revision flags
+    - Validate that `requiresDesignRevision=true` prevents automatic plan revision eligibility
+    - _Requirements: 6.1, 6.2, 6.3, 6.4, 6.5, 10.1, 10.2, 10.3_
+  - [ ] 1.3 Update workflow types for automatic plan review status
+    - Modify `extensions/clarification-orchestrator/workflow/types.ts` only as needed to represent automatic plan review readiness and revision handoff without adding a plan review mode decision
+    - Preserve design review `ReviewMode` behavior for design review while ensuring plan review can be represented as automatic/fixed in `reviewStatus.plan`
+    - _Requirements: 1.2, 1.3, 7.7, 12.2_
+  - [ ]* 1.4 Write domain and schema unit tests
+    - Add `tests/unit/workflow/plan-review-schema-validation.test.ts`
+    - Test valid reviewer findings, invalid directives, invalid artifacts, missing blocking recommendations, `requiresDesignRevision=true`, and reviser output validation
+    - _Requirements: 6.1, 6.2, 6.3, 6.4, 6.5, 10.1, 10.2, 10.3_
+
+- [ ] 2. Phase 2: Artifact binding and shape validation
+  - [ ] 2.1 Implement exact plan artifact binding
+    - Create `extensions/clarification-orchestrator/workflow/adapters/plan-review/artifact-binding.ts` with `bindPlanReviewArtifacts()` and stale detection helpers
+    - Load approved design from `state.gates.design` and current requirements/tasks from `state.artifacts`
+    - Verify topic-scoped paths, checksums, and that design approval binds the exact design ref
+    - Return fail-closed diagnostics for missing approval, missing artifacts, path escape, checksum mismatch, or stale source refs
+    - _Requirements: 2.1, 2.2, 2.3, 2.4, 2.5, 12.1, 12.4_
+  - [ ] 2.2 Implement plan shape validation
+    - Create `extensions/clarification-orchestrator/workflow/adapters/plan-review/shape-validator.ts`
+    - Validate `requirements.md` section structure and `tasks.md` `## Tasks` presence
+    - Reuse `extensions/clarification-orchestrator/workflow/adapters/spec-exec/task-plan-parser.ts` for task parsing, checkbox, numbering, optional marker, checkpoint, and requirement-reference interpretation
+    - Emit `artifact-format`, `missing-validation`, or repairable plan-level findings when safe; return failed diagnostics when documents are too malformed to revise safely
+    - _Requirements: 3.1, 3.2, 3.3, 3.4, 3.5_
+  - [ ] 2.3 Add artifact binding and shape validator tests
+    - Add `tests/unit/workflow/plan-review-artifact-binding.test.ts`
+    - Add `tests/unit/workflow/plan-review-shape-validator.test.ts`
+    - Cover valid binding, missing design approval, checksum mismatch, path traversal, stale artifacts, missing requirements, missing tasks section, malformed task checkbox markers, missing requirement refs, and severe malformed failure
+    - _Requirements: 2.1, 2.2, 2.3, 2.4, 2.5, 3.1, 3.2, 3.3, 3.4, 3.5_
+
+- [ ] 3. Phase 3: Fixed reviewer registry, prompts, and parallel execution
+  - [ ] 3.1 Implement fixed reviewer registry
+    - Create `extensions/clarification-orchestrator/workflow/adapters/plan-review/reviewer-registry.ts`
+    - Register exactly `requirements-coverage-reviewer`, `task-coverage-reviewer`, and `dependency-order-reviewer`
+    - Expose a `getFixedPlanReviewers()` API that always returns all three roles and ignores user/project-local selection inputs
+    - _Requirements: 4.1, 4.2, 5.1, 5.2, 5.3_
+  - [ ] 3.2 Add plan reviewer prompt builders
+    - Create prompt modules under `extensions/clarification-orchestrator/workflow/adapters/plan-review/prompts/`
+    - Add prompt builders for `requirements-coverage-reviewer`, `task-coverage-reviewer`, and `dependency-order-reviewer`
+    - Include artifact refs/checksums, role focus, read-only restrictions, approved design source-of-truth language, finding schema, and explicit bans on approval/execution/artifact mutation directives
+    - _Requirements: 5.1, 5.2, 5.3, 5.4, 5.5, 13.1, 13.4_
+  - [ ] 3.3 Implement parallel reviewer runner
+    - Create `extensions/clarification-orchestrator/workflow/adapters/plan-review/parallel-runner.ts`
+    - Run all fixed reviewers concurrently with `runAgent()` from Agent Execution Runtime
+    - Pass identical artifact binding and read-only artifact contents to each reviewer
+    - Enforce role policy, no-session/no-skills, timeout, output limit, and schema validation through existing agent runtime APIs
+    - Treat any timeout, process failure, or invalid output as whole-review failure without partial accept or per-reviewer retry
+    - _Requirements: 4.3, 4.4, 4.5, 5.4, 13.1, 13.2, 13.3, 13.4_
+  - [ ]* 3.4 Write registry, prompt, and parallel runner tests
+    - Add `tests/unit/workflow/plan-review-reviewer-registry.test.ts`
+    - Add `tests/unit/workflow/plan-review-parallel-runner.test.ts`
+    - Test fixed role set, no subset support, identical input binding, concurrent runner behavior, invalid output failure, timeout failure, and no partial accept behavior
+    - _Requirements: 4.1, 4.2, 4.3, 4.4, 4.5, 5.4, 13.1, 13.3_
+
+- [ ] 4. Phase 4: Finding normalization, aggregation, readiness, and review ledger
+  - [ ] 4.1 Implement finding normalization
+    - Create `extensions/clarification-orchestrator/workflow/adapters/plan-review/finding-normalizer.ts`
+    - Convert shape-validator and reviewer findings into stable `PlanReviewFinding` records with generated ids, reviewer role, artifact binding, affected artifacts, affected sections, evidence, revision flags, and sanitized text
+    - Reject or sanitize unsupported artifact references and unsafe directives before aggregation
+    - _Requirements: 6.1, 6.2, 6.3, 6.4, 6.5_
+  - [ ] 4.2 Implement deterministic aggregation
+    - Create `extensions/clarification-orchestrator/workflow/adapters/plan-review/aggregation.ts`
+    - Combine all shape validation and reviewer findings without complex deduplication
+    - Preserve every finding, reviewer result status, severity counts, plan revision counts, and design revision counts
+    - _Requirements: 7.1, 7.2, 7.3, 7.4, 7.5, 7.6_
+  - [ ] 4.3 Implement readiness evaluation
+    - Create `extensions/clarification-orchestrator/workflow/adapters/plan-review/readiness.ts`
+    - Return `blocked-needs-design-revision` for any design-revision finding
+    - Return `blocked-needs-plan-revision` for blocking or major plan-revision findings
+    - Return `failed` for reviewer/process/schema failures and `stale` for artifact mismatch
+    - Return `ready-for-plan-approval` only when all reviewers succeed and no blocking findings remain
+    - Ensure ready never implies plan approval
+    - _Requirements: 7.1, 7.2, 7.3, 7.4, 7.5, 7.6, 7.7_
+  - [ ] 4.4 Implement plan review run store and ledger writer
+    - Create `extensions/clarification-orchestrator/workflow/adapters/plan-review/review-run-store.ts`
+    - Persist `metadata.json`, `artifact-binding.json`, `reviewer-results/*.json`, `findings.json`, `aggregate.json`, `readiness.json`, and `events.jsonl` under `.workflow/reviews/plan/<review-run-id>/`
+    - Provide readers for status/resume to inspect latest review run and readiness
+    - _Requirements: 8.1, 8.2, 8.3, 8.4, 8.5, 14.1, 14.2, 14.3_
+  - [ ]* 4.5 Write aggregation, readiness, and ledger tests
+    - Add `tests/unit/workflow/plan-review-finding-normalizer.test.ts`
+    - Add `tests/unit/workflow/plan-review-aggregation.test.ts`
+    - Add `tests/unit/workflow/plan-review-readiness.test.ts`
+    - Add `tests/unit/workflow/plan-review-ledger.test.ts`
+    - Cover ready, plan revision blocker, design revision blocker, failed reviewer, stale binding, ledger writes, and ledger reads
+    - _Requirements: 6.1, 6.4, 7.1, 7.2, 7.3, 7.4, 7.5, 7.6, 8.1, 8.2, 8.3, 8.4, 8.5_
+
+- [ ] 5. Checkpoint - Verify core automatic plan review foundation
+  - Run `npm run typecheck`
+  - Run `node --test tests/unit/workflow/plan-review-schema-validation.test.ts tests/unit/workflow/plan-review-artifact-binding.test.ts tests/unit/workflow/plan-review-shape-validator.test.ts tests/unit/workflow/plan-review-reviewer-registry.test.ts tests/unit/workflow/plan-review-parallel-runner.test.ts tests/unit/workflow/plan-review-finding-normalizer.test.ts tests/unit/workflow/plan-review-aggregation.test.ts tests/unit/workflow/plan-review-readiness.test.ts tests/unit/workflow/plan-review-ledger.test.ts`
+  - Inspect `extensions/clarification-orchestrator/workflow/adapters/plan-review/` and confirm fixed role set, artifact binding, schema validation, ledger layout, and readiness semantics are implemented
+  - Confirm requirements 1.2, 2.1-2.5, 4.1-4.5, 6.1-6.5, 7.1-7.7, and 8.1-8.5 are covered before continuing
+
+- [ ] 6. Phase 5: PlanReviewPanel and runtime adapter integration
+  - [ ] 6.1 Implement `PlanReviewPanel`
+    - Create `extensions/clarification-orchestrator/workflow/adapters/plan-review/panel.ts`
+    - Orchestrate artifact binding, shape validation, fixed parallel reviewer execution, normalization, aggregation, readiness, and ledger writes
+    - Return panel result with review run id, readiness, aggregate, ledger path, and failure/block diagnostics
+    - _Requirements: 1.1, 1.3, 1.4, 2.1, 3.1, 4.1, 7.1, 8.1_
+  - [ ] 6.2 Replace placeholder `plan-review.ts` adapter
+    - Modify `extensions/clarification-orchestrator/workflow/adapters/plan-review.ts` to call `PlanReviewPanel` instead of accepting `skip | minimal | full` status input
+    - Require design, requirements, and tasks artifacts and verify design approval before invoking the panel
+    - Commit ready results to `awaiting-plan-approval`; commit blocked/failed results through runtime blocked/failed semantics
+    - _Requirements: 1.1, 1.2, 1.3, 1.4, 2.5, 12.1, 12.2_
+  - [ ] 6.3 Update adapter registry and state-machine transitions for automatic plan review
+    - Modify `extensions/clarification-orchestrator/workflow/adapters/registry.ts` and runtime transition logic so planning proceeds automatically to `plan-review` rather than `awaiting-plan-review-decision`
+    - Remove or bypass plan review decision prompts while preserving design review decision behavior
+    - Ensure execution remains blocked until automatic plan review is ready and plan approval exists
+    - _Requirements: 1.1, 1.2, 1.5, 12.2, 12.3, 12.4, 12.5_
+  - [ ] 6.4 Update approval gate validation for reviewed plan artifacts
+    - Modify workflow approval gate helpers to require plan approval refs to match the latest ready plan review binding
+    - Reject approval or execution when requirements/tasks differ from the ready review binding
+    - _Requirements: 2.4, 7.7, 11.5, 12.3, 12.4, 12.5_
+  - [ ]* 6.5 Add runtime adapter integration tests
+    - Add or update integration tests to cover planning → automatic plan review → awaiting plan approval
+    - Test that plan review mode input is not requested or accepted
+    - Test execution cannot start before automatic plan review and explicit plan approval
+    - _Requirements: 1.1, 1.2, 1.3, 1.5, 12.1, 12.2, 12.3, 12.4, 12.5_
+
+- [ ] 7. Phase 6: Automatic-once plan revision
+  - [ ] 7.1 Implement plan revision controller
+    - Create `extensions/clarification-orchestrator/workflow/adapters/plan-review/revision-controller.ts`
+    - Trigger revision only for `blocked-needs-plan-revision`, only when no finding requires design revision, and only when no automatic revision has been used for the current plan cycle
+    - Build a `plan-reviser` request with approved design, current requirements/tasks, aggregate findings, readiness, and source artifact refs
+    - _Requirements: 9.1, 9.2, 9.5, 10.4, 11.4_
+  - [ ] 7.2 Add plan reviser prompt and output validation
+    - Add `extensions/clarification-orchestrator/workflow/adapters/plan-review/prompts/plan-reviser.ts`
+    - Ensure prompt states that only `requirements.md` and `tasks.md` may be revised and design/approval/state/execution are forbidden
+    - Validate `PlanRevisionAgentOutput`, revised requirements, revised tasks, addressed findings, unresolved findings, and blockers
+    - _Requirements: 9.2, 10.1, 10.2, 10.3, 10.4, 10.5, 13.1, 13.3, 13.4_
+  - [ ] 7.3 Commit revised requirements/tasks through artifact store
+    - Integrate revision controller with existing artifact commit APIs so revised requirements/tasks become new versioned artifacts
+    - Prevent direct writes to approved design, workflow state, approvals, review decisions, source files, or execution progress
+    - Mark source review stale for approval purposes after revised artifacts commit
+    - _Requirements: 9.3, 9.4, 10.2, 10.5, 11.5_
+  - [ ] 7.4 Implement plan revision ledger
+    - Create `extensions/clarification-orchestrator/workflow/adapters/plan-review/revision-ledger.ts`
+    - Persist `policy.json`, `source-review.json`, `source-artifacts.json`, `aggregate-findings.json`, `reviser-output.json`, `committed-artifacts.json`, and `post-revision-review.json`
+    - Link revision ledger to the source review run and post-revision review run
+    - _Requirements: 8.5, 9.1, 9.2, 9.3, 9.4, 11.2, 14.1, 14.2_
+  - [ ] 7.5 Wire post-revision re-review
+    - Modify `PlanReviewPanel` or adapter orchestration to immediately run one new plan review after revised requirements/tasks commit
+    - Ensure post-revision review uses a new review run id and the new requirements/tasks artifact refs
+    - Stop blocked/failed without another revision if re-review does not return ready
+    - _Requirements: 11.1, 11.2, 11.3, 11.4, 9.5_
+  - [ ]* 7.6 Write revision controller and ledger tests
+    - Add `tests/unit/workflow/plan-revision-controller.test.ts`
+    - Add `tests/unit/workflow/plan-revision-ledger.test.ts`
+    - Test automatic once, design blocker prevention, reviser invalid output, design mutation rejection, checkbox progress mutation rejection, artifact commits, stale source review, and post-revision review link
+    - _Requirements: 9.1, 9.2, 9.3, 9.4, 9.5, 10.1, 10.2, 10.3, 10.4, 10.5, 11.1, 11.2, 11.4, 11.5_
+
+- [ ] 8. Phase 7: Status, resume, events, and documentation alignment
+  - [ ] 8.1 Add plan review and revision events
+    - Update workflow event helpers to append events for plan review start, reviewer completion, review readiness, revision start, revision commit, re-review start, blocked, failed, and ready states
+    - Ensure events reference review run ids, revision ids, artifact refs, readiness status, and ledger paths
+    - _Requirements: 8.4, 14.1, 14.2, 14.3_
+  - [ ] 8.2 Update status and resume presentation
+    - Modify status/resume helpers to report automatic plan review readiness, reviewer status, ledger path, automatic revision attempt status, post-revision review status, and next action
+    - Ensure ready review presents plan approval as the next decision and blocked/failed review presents diagnostics without approval/execution
+    - _Requirements: 8.5, 14.2, 14.3, 14.4, 14.5_
+  - [ ] 8.3 Update README and roadmap docs
+    - Update `README.md` and relevant workflow docs/tests to describe automatic fixed plan review instead of plan review mode selection
+    - Ensure docs explain that design review still has user-selected modes, while plan review runs automatically after planning
+    - _Requirements: 1.2, 14.2, 14.4, 14.5_
+  - [ ]* 8.4 Add docs/status tests
+    - Update `tests/unit/docs/workflow-runtime.test.ts` or related docs alignment tests for automatic plan review language
+    - Add status/resume unit tests where existing helpers are covered
+    - _Requirements: 14.2, 14.3, 14.4, 14.5_
+
+- [ ] 9. Phase 8: Integration and security coverage
+  - [ ]* 9.1 Add automatic plan review integration tests
+    - Add `tests/integration/plan-review-automatic-flow.test.ts`
+    - Cover planning → automatic plan review → ready → awaiting plan approval
+    - Cover no plan review mode decision and no implicit skip path
+    - _Requirements: 1.1, 1.2, 1.3, 7.6, 7.7, 12.2, 12.3_
+  - [ ]* 9.2 Add automatic revision integration tests
+    - Add `tests/integration/plan-review-automatic-revision-flow.test.ts`
+    - Cover blocked-needs-plan-revision → automatic revision → new artifact versions → re-review → awaiting plan approval
+    - Cover re-review still blocked → blocked with no second automatic revision
+    - _Requirements: 9.1, 9.3, 9.4, 9.5, 11.1, 11.2, 11.3, 11.4_
+  - [ ]* 9.3 Add design blocker and stale approval integration tests
+    - Add `tests/integration/plan-review-design-blocker-flow.test.ts`
+    - Add `tests/integration/plan-review-stale-approval-flow.test.ts`
+    - Cover requires-design-revision prevents automatic plan revision and stale pre-revision artifacts cannot be approved
+    - _Requirements: 7.2, 9.1, 10.4, 11.5, 12.4_
+  - [ ]* 9.4 Add security tests
+    - Add `tests/security/plan-review-trust-boundary.test.ts`
+    - Add `tests/security/plan-review-path-guard.test.ts`
+    - Add `tests/security/plan-revision-no-design-mutation.test.ts`
+    - Add `tests/security/plan-review-no-approval-forgery.test.ts`
+    - Cover reviewer/reviser attempts to mutate artifacts/state, forge approvals, enter execution, use external paths, or bypass gates
+    - _Requirements: 2.3, 5.4, 10.2, 10.5, 12.4, 13.1, 13.2, 13.3, 13.4, 13.5_
+  - [ ] 9.5 Checkpoint - Validate full Spec 6 implementation
+    - Run `npm run typecheck`
+    - Run `npm test`
+    - Run `npm run validate-package`
+    - Inspect `specs/plan-review-panel/requirements.md` and this `tasks.md` to confirm every task references valid requirement IDs
+    - Confirm runtime path is design approval → planning → automatic plan review → optional automatic-once revision/re-review → plan approval → execution
+    - Confirm no public plan review mode selection remains and no automatic approval/execution is introduced
+    - Stop if typecheck, tests, package validation, artifact binding, trust boundary, or gate validation fails
+
+## Notes
+
+- Tasks marked with `*` are optional and can be skipped for an MVP, but security and integration tests should be completed before relying on the feature in real workflow runs.
+- The implementation should reuse existing design-review low-level patterns where helpful, but must not inherit design-review subset, partial accept, per-reviewer retry, or complex triage behavior.
+- The existing `ReviewMode` type may remain for design review, but plan review should not expose mode selection in runtime UX or adapter input.
+- Automatic plan revision is intentionally one-shot. If the revised plan still fails review, runtime should stop with diagnostics rather than loop.

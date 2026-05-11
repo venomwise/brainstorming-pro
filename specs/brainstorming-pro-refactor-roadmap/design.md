@@ -51,7 +51,8 @@ Brainstorming Pro 当前采用单一 `/brainstorm-pro` workflow intent interface
 - runtime state schema；
 - persisted run state under `specs/<topic>/.workflow/runs/<run-id>/state.json`；
 - review decision / approval gate phase names；
-- explicit `skip | minimal | full` review decision model；
+- explicit `skip | minimal | full` design review decision model；
+- automatic fixed plan review model；
 - design/plan approval decision model；
 - `blocked` / `failed` fail-closed behavior；
 - package-owned `brainstorming-pro`、`spec-plan-pro`、`spec-exec-pro` skill methodology docs；
@@ -82,7 +83,7 @@ Brainstorming Pro 当前采用单一 `/brainstorm-pro` workflow intent interface
 5. 后续 review panel 从产品、架构、风险、测试等角度评审 design。
 6. runtime 记录用户 review mode、approval 或 revision 决策。
 7. 后续 SpecPlanPhaseAdapter 生成 requirements/tasks。
-8. runtime 暂停在 plan review decision / approval gate。
+8. runtime 自动执行固定 plan review，并在 plan approval gate 暂停。
 9. 后续 Controlled SpecExecPhaseAdapter 按 code-owned task loop 执行 approved tasks、checkpoint 和 evidence validation。
 10. 执行完成且无 blocker 后，runtime 记录 execution report 并进入 done。
 
@@ -111,8 +112,8 @@ Brainstorming Pro 当前采用单一 `/brainstorm-pro` workflow intent interface
 - 对复杂需求来说，`design.md` 的可信度非常关键。它不应由单个 agent 一次生成后直接进入 planning，而应经过多 Agent review、triage 和必要 revision。
 - 不能依赖父 LLM 通过 prompt 自觉遵循生命周期，也不能让父 LLM 直接推进 planning/execution。父 LLM 可以表达意图，但状态迁移必须由代码强制。
 - 通用 `subagent` tool 可以作为底层参考，但不应成为顶层产品抽象。Brainstorming Pro 的核心抽象应是 workflow，而不是任意委派。
-- Approval gate 不能交给 agent 自动通过。采用“全自动推进非决策阶段，但在 review mode decision、design approval 和 plan approval 等用户决策点暂停”的交互模式。
-- 用户应先审阅第一版 design/plan artifact，再通过统一 `--resume` 入口选择 review 深度：`skip`、`minimal` 或未来的 `full`。
+- Approval gate 不能交给 agent 自动通过。采用“全自动推进非决策阶段，但在 design review mode decision、design approval 和 plan approval 等用户决策点暂停”的交互模式。
+- 用户应先审阅第一版 design artifact，再通过统一 `--resume` 入口选择 design review 深度：`skip`、`minimal` 或未来的 `full`；plan review 不再暴露 review mode decision，而是在 planning 后自动执行固定三 reviewer 文档校验。
 - Multi-agent review panel 是高价值能力，但必须建立在 workflow runtime、artifact store、event log 和 phase adapter 基础之上。
 - 后续 spec 必须分层落地，否则一次性设计会过大且难以测试。
 
@@ -124,7 +125,7 @@ Brainstorming Pro 当前采用单一 `/brainstorm-pro` workflow intent interface
 - 持久化状态机。
 - Artifact/version store。
 - Append-only event log。
-- Design/plan review decision gates 和 approval gates。
+- Design review decision gate、automatic plan review 和 design/plan approval gates。
 - Phase adapter registry。
 - Agent execution runtime。
 - Multi-agent design review panel。
@@ -223,8 +224,7 @@ intake
   → design-review | awaiting-design-approval
   → awaiting-design-approval
   → planning
-  → awaiting-plan-review-decision
-  → plan-review | awaiting-plan-approval
+  → plan-review
   → awaiting-plan-approval
   → executing
   → done
@@ -239,14 +239,14 @@ design review decision gate:
 design approval gate:
   selected design review mode completed or explicitly skipped, then exact latest design approved by user
 
-plan review decision gate:
-  user selects skip | minimal | full for exact latest requirements/tasks versions
+automatic plan review gate:
+  fixed plan review completed for exact approved design + latest requirements/tasks versions
 
 plan approval gate:
-  selected plan review mode completed or explicitly skipped, then exact latest requirements/tasks approved by user
+  automatic plan review completed and ready, then exact latest requirements/tasks approved by user
 ```
 
-`skip` 必须是用户显式选择并记录的结果，不能是隐式 no-op。`full` 在 review panel 尚未实现时应明确提示 unavailable，不能静默降级。
+Design review 的 `skip` 必须是用户显式选择并记录的结果，不能是隐式 no-op。Design review 的 `full` 在 review panel 尚未实现时应明确提示 unavailable，不能静默降级。Plan review 不提供 `skip | minimal | full` 用户选择；它是 planning 后由 runtime 自动执行的固定文档校验。
 
 #### 3. Phase Adapters
 
@@ -721,24 +721,39 @@ specs/design-revision-loop/design.md
 specs/plan-review-panel/design.md
 ```
 
-定位：验证 `requirements.md` 和 `tasks.md` 是否覆盖已批准 design，并确保任务顺序、粒度和测试策略稳定。
+定位：建立轻量、固定 reviewer 集合的 plan 文档校验 panel，验证已批准 `design.md` → `requirements.md` → `tasks.md` 的覆盖关系和任务执行顺序。Spec 6 不复制 Spec 5 的复杂交叉评审模型；plan review 的核心是文档一致性与可执行性校验，而不是重新讨论需求设计。
 
 包含：
 
-- coverage review；
-- dependency/order review；
-- testability review；
-- risk review；
-- task gap detection；
-- plan revision loop；
-- plan approval readiness report。
+- exact artifact binding：绑定已批准 `design.md`、当前 `requirements.md` 和当前 `tasks.md` 的版本、路径与 checksum；
+- automatic fixed plan review semantics：planning 产出 requirements/tasks 后，runtime 不再暂停等待用户选择 plan review mode，而是直接执行固定文档校验；
+- 固定三个核心 reviewer，默认始终执行，不支持 `skip | minimal | full` mode、不支持用户选择 subset：
+  - `requirements-coverage-reviewer`：校验 approved design 是否被 requirements 完整、忠实覆盖；
+  - `task-coverage-reviewer`：校验 requirements 是否被 tasks 完整覆盖，是否存在 missing/orphan/oversized/untestable tasks；
+  - `dependency-order-reviewer`：校验 task 顺序、依赖、checkpoint placement 和后续 controlled execution 的可执行性；
+- 三个 reviewer 只读并并行执行，以提高 review 效率；
+- deterministic aggregation/readiness：汇总 findings，区分 ready、blocked-needs-plan-revision、blocked-needs-design-revision、failed、stale；
+- plan review ledger：记录 reviewer results、findings、aggregate、readiness 和 artifact binding；
+- automatic-once plan revision：当且仅当 findings 是 plan-level blocker 且不需要 design revision 时，runtime 默认执行一次自动 plan revision；
+- plan reviser 只能修改 `requirements.md` 和 `tasks.md`，不能修改已批准 `design.md`、不能批准 plan、不能进入 execution；
+- revision 后提交新版 requirements/tasks artifacts，旧 review stale，并立即对新版 plan 重新执行 review；
+- 一次自动 revision 后若 re-review 仍 blocked/failed，不再自动循环，runtime 停止并报告 blocker；
+- plan approval readiness report；passed/ready 仍只进入显式 plan approval gate。
+
+不包含：
+
+- Spec 5 风格的 reviewer subset、用户选择 reviewer、partial/incomplete accept、单 reviewer retry 或复杂 triage；
+- 五角色 full panel；
+- 多轮自动 plan revision；
+- design mutation、design approval、plan approval 或 execution。
 
 依赖：
 
 - `workflow-runtime-orchestrator`。
 - `agent-execution-runtime`。
 - `skill-phase-adapters` 中的 spec-plan adapter。
-- 最好在 `design-review-panel` 之后，因为两者共享 review/triage 模型。
+- `controlled-spec-exec-adapter`，因为 plan review 必须保证 `tasks.md` 能被后续 code-owned execution loop 稳定消费。
+- 可复用 `design-review-panel` 的 artifact binding / ledger / finding normalization 思路，但不继承其复杂 execution-control 模型。
 
 #### Spec 7: `workflow-ux-interface`
 
@@ -756,7 +771,7 @@ specs/workflow-ux-interface/design.md
 - `--resume` 作为主恢复和决策入口；
 - `--status`；
 - 多 pending workflow 选择；
-- review mode decision 展示；
+- design review mode decision 展示；
 - design full review reviewer selection 展示，包括默认全选、选择一个或多个 reviewer、展示 reviewer role 说明和 exact design artifact binding；
 - partial / incomplete review 状态展示，包括 selected / unselected / succeeded / failed reviewer coverage；
 - failed reviewer retry 交互，包括只重试失败 reviewer、重新选择 reviewer set、退出或查看 ledger/status；
@@ -766,7 +781,7 @@ specs/workflow-ux-interface/design.md
 - blocked/failed recovery hints；
 - optional future Pi tool interface。
 
-不应把 `--approve design`、`--approve plan`、`--review --mode` 等细粒度命令作为默认主路径；它们最多是未来高级快捷方式或自动化 API。
+不应把 `--approve design`、`--approve plan`、`--review --mode` 等细粒度命令作为默认主路径；它们最多是未来高级快捷方式或自动化 API。Plan review 不提供用户选择 mode 的主路径，planning 后由 runtime 自动执行固定 reviewer panel。
 
 依赖：
 
@@ -844,13 +859,13 @@ User resumes and approves exact design version
   ↓
 SpecPlanPhaseAdapter produces requirements/tasks
   ↓
-Runtime pauses at awaiting-plan-review-decision
+Runtime automatically enters plan-review after planning commits requirements/tasks
   ↓
-User resumes and selects plan review mode: skip | minimal | full
+PlanReviewPanel validates approved design → requirements → tasks with a fixed parallel three-reviewer document-validation panel
   ↓
-PlanReviewPanel validates coverage/order/testability, or review is explicitly skipped by user decision
+If plan-level blockers are found, runtime performs one automatic plan revision limited to requirements/tasks and immediately re-runs plan review once
   ↓
-Runtime pauses at awaiting-plan-approval
+Runtime pauses at awaiting-plan-approval, or stops blocked/failed if the one-shot revision cannot produce a ready plan
   ↓
 User resumes and approves exact requirements/tasks versions
   ↓
@@ -865,11 +880,11 @@ Runtime marks workflow done or blocked
 
 ```text
 DesignReviewPanel foundation: user-selected skip/minimal/full，minimal 走真实 review run + finding schema + ledger，full 可显式 unavailable，后续由 Spec 5.1 实现五角色 role pack，并由 Spec 5.2 增强 reviewer selection、partial retry 和 accept incomplete review
-PlanReviewAdapter: user-selected skip or minimal
+PlanReviewPanel: planning 后自动执行固定三 reviewer 并行文档校验；不提供 skip/minimal/full mode，不支持 subset/partial accept/per-reviewer retry；plan-level blocker 默认触发一次 automatic plan revision，修订后必须 re-review，仍停在 plan approval gate
 Controlled SpecExecAdapter: code-owned task loop with per-task evidence and blockers
 ```
 
-`skipped` 必须来自用户显式选择或明确策略记录，不能是隐式 no-op。`full` unavailable 必须是显式 capability 状态和事件，不能静默降级为 `minimal` 或 `skip`。Design/plan review 节点必须保留；execution correctness 则内嵌在 controlled task loop、checkpoint tasks、evidence validation 和 blocker escalation 中，不再设置默认终局 execution-review 节点。
+Design review 的 `skipped` 必须来自用户显式选择或明确策略记录，不能是隐式 no-op。Design review 的 `full` unavailable 必须是显式 capability 状态和事件，不能静默降级为 `minimal` 或 `skip`；Plan review 不暴露 review mode，不引入 Spec 5 风格的 reviewer selection / partial recovery，而是固定执行三 reviewer 文档校验。Design/plan review 节点必须保留；execution correctness 则内嵌在 controlled task loop、checkpoint tasks、evidence validation 和 blocker escalation 中，不再设置默认终局 execution-review 节点。
 
 ## Error Handling
 
@@ -887,9 +902,9 @@ Phase adapter、agent、reviewer、父 LLM 都不能直接推进状态。它们�
 
 Design review decision 和 design approval 必须绑定 exact design artifact version。
 
-Plan review decision 和 plan approval 必须绑定 exact requirements/tasks artifact versions。
+Plan review run 和 plan approval 必须绑定 exact approved design、requirements/tasks artifact versions。
 
-如果 artifact 在 review decision、review 或 approval 前发生变化，必须重新选择 review mode、重新 review 或重新请求 approval。
+如果 design artifact 在 design review decision、review 或 approval 前发生变化，必须重新选择 design review mode、重新 review 或重新请求 approval。如果 requirements/tasks 在 automatic plan review 或 plan approval 前发生变化，必须重新执行 plan review 或重新请求 approval。
 
 ### 4. Review findings do not mutate artifacts directly
 
@@ -897,13 +912,13 @@ Reviewer 输出 findings。Design/task 修改应由 revision phase 或 adapter �
 
 ### 5. Resume must be deterministic
 
-`--resume` 必须基于 `state.json` 和 `events.jsonl` 恢复，不应依赖对话上下文猜测当前阶段。`--resume` 可以自动推进非决策阶段，但在 review decision 和 approval gate 处必须展示用户选择，不能静默选择 review mode 或自动 approve。
+`--resume` 必须基于 `state.json` 和 `events.jsonl` 恢复，不应依赖对话上下文猜测当前阶段。`--resume` 可以自动推进非决策阶段和 automatic plan review，但在 design review decision、design approval 和 plan approval gate 处必须展示用户选择，不能静默选择 design review mode 或自动 approve。
 
 ### 6. User gates are non-bypassable
 
 进入 planning 前必须有 design review decision 和 design approval。
 
-进入 execution 前必须有 plan review decision 和 plan approval。
+进入 execution 前必须完成 automatic plan review 且获得 plan approval。
 
 即使父 LLM 或 subagent 请求继续，也必须由代码拒绝非法推进。
 
@@ -940,21 +955,22 @@ Reviewer 输出 findings。Design/task 修改应由 revision phase 或 adapter �
 ### Review panel tests
 
 - design review run 绑定 exact design artifact version/checksum。
-- `minimal` review 使用统一 finding schema、aggregation 和 ledger。
-- `full` review 在 role pack 未实现时显式返回 unavailable，且不能静默降级。
-- 多 reviewer 并发执行。
-- full reviewer role pack 默认执行完整五角色集合。
-- reviewer selection、partial aggregation、failed reviewer retry 和 accept incomplete review 的 execution-control 行为。
-- findings aggregation。
-- conflicting reviews triage。
-- blocking issue 阻止 approval readiness。
-- revision loop 最大轮次。
+- design `minimal` review 使用统一 finding schema、aggregation 和 ledger。
+- design `full` review 在 role pack 未实现时显式返回 unavailable，且不能静默降级。
+- design full reviewer role pack 默认执行完整五角色集合。
+- design reviewer selection、partial aggregation、failed reviewer retry 和 accept incomplete review 的 execution-control 行为。
+- design findings aggregation、conflicting reviews triage、blocking issue readiness 和 revision loop 最大轮次。
+- plan review 绑定 exact approved design、requirements 和 tasks artifact versions/checksums。
+- plan review 不暴露 `skip | minimal | full` mode，planning 后自动固定并行执行 `requirements-coverage-reviewer`、`task-coverage-reviewer`、`dependency-order-reviewer`，不支持 subset、partial accept 或 per-reviewer retry。
+- plan findings deterministic aggregation 和 readiness。
+- plan-level blocker 自动触发一次且仅一次 requirements/tasks revision，revision 后旧 review stale，并必须 re-review。
+- requires-design-revision 的 plan finding 阻止 automatic plan revision。
 
 ### End-to-end tests
 
-- start → design → awaiting design review decision → choose review mode → design review/skipped → design approval → plan → awaiting plan review decision → choose review mode → plan review/skipped → plan approval → controlled exec → done。
+- start → design → awaiting design review decision → choose design review mode → design review/skipped → design approval → plan → automatic plan review → optional automatic-once plan revision/re-review → plan approval → controlled exec → done。
 - design review decision 或 design approval 前不能 planning。
-- plan review decision 或 plan approval 前不能 execution。
+- automatic plan review 或 plan approval 前不能 execution。
 - artifact 被篡改后 stale review decision 或 approval 被拒绝。
 - interrupted workflow 可以通过 `--resume` 恢复。
 
@@ -976,11 +992,10 @@ Reviewer 输出 findings。Design/task 修改应由 revision phase 或 adapter �
 4. Spec 5.2 中 accept incomplete review 的 decision/ref/event schema 应如何绑定 failed reviewer coverage，才能避免被误认为完整 review passed？
 5. `design-review-triage-and-readiness` 中 advanced triage 应采用多大比例的 deterministic merge 与 optional agent summary？
 6. `design-revision-loop` 中哪些 blocking findings 可以自动修订，哪些必须先询问用户？
-7. Plan review failed 后是否自动重新生成 tasks？
-8. Controlled execution blocked 后应如何通过 `--resume` 选择 retry、abort、处理 missing dependency 或请求 plan revision？
-9. 是否需要 background async runner？如果需要，应在 workflow runtime 稳定后单独设计。
-10. 是否公开 Pi tool interface？如果公开，如何避免父 LLM 绕过 workflow command/gate？
-11. 是否支持从 `events.jsonl` 自动重建损坏的 `state.json`？
+7. Controlled execution blocked 后应如何通过 `--resume` 选择 retry、abort、处理 missing dependency 或请求 plan revision？
+8. 是否需要 background async runner？如果需要，应在 workflow runtime 稳定后单独设计。
+9. 是否公开 Pi tool interface？如果公开，如何避免父 LLM 绕过 workflow command/gate？
+10. 是否支持从 `events.jsonl` 自动重建损坏的 `state.json`？
 
 Planning 和 execution 行为必须通过 runtime phases/adapters 暴露，并由 `/brainstorm-pro` runtime 统一触发、校验和持久化。
 
@@ -1026,12 +1041,13 @@ Planning 和 execution 行为必须通过 runtime phases/adapters 暴露，并�
 
 - 不能依赖父 LLM 自觉遵循生命周期；生命周期必须由代码强制。
 - 未完成 design review decision 和 design approval 时不能进入 planning。
-- 未完成 plan review decision 和 plan approval 时不能进入 execution。
+- 未完成 automatic plan review 和 plan approval 时不能进入 execution。
 - 所有关键 artifacts 必须版本化。
 - Review decision 和 approval 必须绑定 exact artifact versions。
 - Events 必须记录关键状态变化。
 - Agent/reviewer 不能直接修改 workflow state。
 - Review finding 不能直接覆盖主 artifact。
+- Plan review 的 automatic revision 必须限制为一次、只允许修改 requirements/tasks、禁止修改 approved design，且 revision 后必须重新 review 并停在显式 plan approval gate。
 - Workflow 必须可 status、resume、blocked/failed 诊断。
 - 可复用 `nicobailon/pi-subagents` 的业务无关基础设施代码，但不得继承其 generic `subagent` product model；derived code 必须保留 MIT license attribution。
 - 长时间运行或多 Agent 并发阶段必须有可观察 UI：至少提供 compact progress、expanded detail、artifact path 和 non-TUI fallback。
