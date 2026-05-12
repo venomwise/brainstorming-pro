@@ -797,27 +797,166 @@ specs/workflow-ux-interface/design.md
 specs/workflow-tui-live-progress/design.md
 ```
 
-定位：参考 `nicobailon/pi-subagents` 的 TUI 经验，为 Brainstorming Pro workflow 提供可观察、可压缩、可展开的 live progress UI。
+定位：参考 `nicobailon/pi-subagents` 的 TUI 经验，为 Brainstorming Pro workflow 建立 snapshot-first live progress TUI foundation。Spec 8 的首要职责是定义 `WorkflowLiveSnapshot`、progress event normalization、compact / expanded rendering、foreground command lifecycle、non-TUI fallback 和 UI/readiness/gate 安全边界。它是后续 interactive runtime-gated TUI 的基础，而不是把 TUI 变成 workflow state authority。
+
+Spec 8 采用 **R2-Split** 总路线：最终产品目标是 interactive TUI，但所有交互都只能提交 runtime-owned decision intent，由 runtime 重新校验 phase、artifact refs、checksums、readiness 和 pending gate 后持久化；TUI 本身不能直接写 state、approval、review decision、review ledger 或 artifacts。Spec 8 只落地 live progress foundation，interactive gate decisions 和复杂 detail views 拆到后续 8.x 子 spec。
 
 包含：
 
-- workflow 顶部/底部 live widget；
+- `WorkflowProgressEvent` / `WorkflowLiveSnapshot` presentation contract；
+- snapshot store：合并 durable `state.json`、append-only `events.jsonl` 和当前进程 progress events；
+- workflow 顶部/底部 live widget 或 Pi custom component；
+- foreground command lifecycle：只观察当前运行的 runtime step，不引入 background async dashboard；
 - phase timeline；
-- reviewer/agent 并发进度；
+- reviewer/agent/task 基础并发进度；
 - 当前 activity、tool、token、耗时、输出路径展示；
 - compact / expanded 两种视图；
-- approval gate 卡片；
+- read-only approval gate 卡片，展示 artifact binding、readiness 和 safe next action；
 - blocked/failed 诊断卡片；
 - status 页面与 artifact links；
-- animation lifecycle 与 stale context cleanup；
-- non-TUI fallback 输出。
+- animation lifecycle、requestRender 节流与 stale context cleanup；
+- terminal capability / non-interactive detection；
+- non-TUI fallback 输出，复用 Spec 7 deterministic status rendering 思路；
+- fail-soft rendering：snapshot stale/corrupt 或 TUI 渲染失败时降级为 text，不影响 workflow state。
+
+不包含：
+
+- TUI 内 approve design / approve plan；
+- TUI 内 design review mode decision 或 reviewer subset selection；
+- TUI 内 retry failed reviewers、accept incomplete、authorize design revision；
+- finding browser、triage conflict explorer 或 execution task detail browser；
+- background async runner、detached dashboard、intercom 或 generic subagent UI；
+- 任何 TUI-owned state mutation。
+
+后续子 spec：
+
+```text
+Spec 8.1: workflow-tui-interactive-decisions
+Spec 8.2: workflow-tui-review-panel-views
+Spec 8.3: workflow-tui-controlled-execution-views
+```
+
+#### Spec 8.1: `workflow-tui-interactive-decisions`
+
+建议路径：
+
+```text
+specs/workflow-tui-interactive-decisions/design.md
+```
+
+定位：在 Spec 8 live snapshot foundation 上增加 interactive TUI gate controls。TUI 可以收集用户 intent，但只能通过 runtime decision facade 提交 `RuntimeUserDecision`；runtime 仍是唯一 authority，负责 stale artifact detection、checksum validation、pending gate validation、event/ledger/state writes 和 fail-closed rejection。
+
+包含：
+
+- design review mode selector：`skip | minimal | full | revise | exit`；
+- full design reviewer subset selector，绑定 exact design ref/checksum；
+- design approval selector；
+- plan approval selector；
+- failed reviewer retry selector；
+- accept incomplete confirmation dialog，明确 incomplete coverage 不等于 passed review 或 approval；
+- design revision authorization confirmation；
+- cancel/escape/status/re-render behavior；
+- stale snapshot / stale gate rejection display；
+- double-submit protection、decision idempotency 或 gate nonce 设计；
+- keyboard/focus/IME 安全；
+- CLI fallback：所有 interactive action 都必须有 `/brainstorm-pro --resume` 或 status fallback。
+
+不包含：
+
+- 新 workflow authority；
+- 直接写 `.workflow/approvals`、`.workflow/decisions`、`.workflow/reviews`、`state.json` 或 artifact files；
+- plan review mode/subset selection；
+- review finding triage browser；
+- execution task detail browser。
+
+依赖：
+
+- `workflow-tui-live-progress`。
+- `workflow-ux-interface` 的 runtime decision/view-model contract。
+- `design-review-execution-control` 和 `design-revision-loop` 的 recovery decision types。
+- `plan-review-panel` 的 plan approval readiness contract。
+
+#### Spec 8.2: `workflow-tui-review-panel-views`
+
+建议路径：
+
+```text
+specs/workflow-tui-review-panel-views/design.md
+```
+
+定位：增强 design review 和 plan review 的 expanded TUI detail views，让用户看懂 reviewer coverage、triage、revision handoff、automatic plan review 和 stale evidence。该 spec 只增强可视化，不重新定义 reviewer prompt、review execution、triage algorithm 或 decision authority。
+
+包含：
+
+- full design reviewer grid；
+- selected / unselected / succeeded / failed reviewer coverage；
+- partial / incomplete review warning card；
+- must-fix / should-fix / note summary；
+- conflicts and unresolved questions panels；
+- review ledger / artifact path links；
+- design revision handoff 和 post-revision review view；
+- stale evidence display：旧 review/triage 只能作为 provenance；
+- fixed three-reviewer plan review panel；
+- automatic-once plan revision attempt and post-revision review view；
+- narrow terminal and fallback rendering rules。
+
+不包含：
+
+- reviewer role implementation；
+- finding aggregation/triage algorithm changes；
+- retry/accept/approval decision logic；
+- plan review mode/subset selection。
+
+依赖：
+
+- `workflow-tui-live-progress`。
+- `design-review-triage-and-readiness`。
+- `design-revision-loop`。
+- `plan-review-panel`。
+
+#### Spec 8.3: `workflow-tui-controlled-execution-views`
+
+建议路径：
+
+```text
+specs/workflow-tui-controlled-execution-views/design.md
+```
+
+定位：为 controlled spec execution 提供 task-level live progress visualization。TUI 展示 task/checkpoint/evidence/blocker 状态，但不选择任务、不修改 checkbox、不验证 evidence、不推进 execution state。
+
+包含：
+
+- task list timeline；
+- current task card；
+- checkpoint-as-task display；
+- task executor activity、duration、output/evidence path；
+- task run record links；
+- checkbox update status；
+- blocked task diagnostics；
+- unauthorized `tasks.md` mutation warning display；
+- execution report summary；
+- done terminal card；
+- non-TUI fallback for execution progress。
+
+不包含：
+
+- task parser / execution loop implementation；
+- task selection authority；
+- checkbox writer authority；
+- evidence validation；
+- automatic retry/abort decision logic。
+
+依赖：
+
+- `workflow-tui-live-progress`。
+- `controlled-spec-exec-adapter`。
 
 设计灵感来源：
 
-- `pi-subagents` 使用 `ctx.ui.setWidget()` 展示后台/前台 agent 进度；
+- Pi TUI `ctx.ui.custom()` / custom component handle 展示 foreground command progress；
 - running agent 使用 spinner animation 和定时 `requestRender()`；
 - compact view 保持低噪声，expanded view 展示 live detail；
-- parallel/chain 模式显示 step/agent 列表、状态 glyph、tool count、tokens、duration、output path；
+- reviewer/task 列表显示状态 glyph、tool count、tokens、duration、output path；
 - slash command live snapshot 用 versioned snapshot 驱动 UI 刷新，避免直接耦合执行逻辑。
 
 依赖：
@@ -825,8 +964,9 @@ specs/workflow-tui-live-progress/design.md
 - `workflow-runtime-orchestrator`。
 - `pi-subagents-infrastructure-reuse`，用于复用或改造 TUI rendering、snapshot、formatter、animation lifecycle。
 - `agent-execution-runtime` 的 progress event。
+- `workflow-ux-interface` 的 deterministic fallback 和 decision/view-model boundary。
 - `design-review-panel` / `plan-review-panel` 的 reviewer status schema，以及 controlled execution 的 task progress schema。
-- 可先实现最小 phase timeline widget，再逐步增强 reviewer detail。
+- 可先实现最小 phase timeline widget，再逐步增强 reviewer detail 和 interactive controls。
 
 ### Data Flow
 
@@ -841,21 +981,21 @@ BrainstormingPhaseAdapter produces design draft
   ↓
 Runtime pauses at awaiting-design-review-decision
   ↓
-User resumes and selects design review mode: skip | minimal | full
+User resumes or uses runtime-gated TUI controls to select design review mode: skip | minimal | full
   ↓
-If full, user may also select reviewer subset for the current design version
+If full, user may also select reviewer subset for the current design version through CLI fallback or runtime-gated TUI controls
   ↓
 DesignReviewPanel reviews design, or review is explicitly skipped by user decision
   ↓
 Successful reviewer findings enter aggregation; failed reviewer attempts remain retryable
   ↓
-If review is incomplete, user may retry failed reviewers or explicitly accept incomplete review
+If review is incomplete, user may retry failed reviewers or explicitly accept incomplete review through runtime-owned decision validation
   ↓
 Triage/revision loop resolves blocking issues when review runs
   ↓
 Runtime pauses at awaiting-design-approval
   ↓
-User resumes and approves exact design version
+User resumes or uses runtime-gated TUI controls to approve exact design version
   ↓
 SpecPlanPhaseAdapter produces requirements/tasks
   ↓
@@ -867,7 +1007,7 @@ If plan-level blockers are found, runtime performs one automatic plan revision l
   ↓
 Runtime pauses at awaiting-plan-approval, or stops blocked/failed if the one-shot revision cannot produce a ready plan
   ↓
-User resumes and approves exact requirements/tasks versions
+User resumes or uses runtime-gated TUI controls to approve exact requirements/tasks versions
   ↓
 Controlled SpecExecPhaseAdapter executes approved tasks/checkpoints
   ↓
@@ -885,6 +1025,8 @@ Controlled SpecExecAdapter: code-owned task loop with per-task evidence and bloc
 ```
 
 Design review 的 `skipped` 必须来自用户显式选择或明确策略记录，不能是隐式 no-op。Design review 的 `full` unavailable 必须是显式 capability 状态和事件，不能静默降级为 `minimal` 或 `skip`；Plan review 不暴露 review mode，不引入 Spec 5 风格的 reviewer selection / partial recovery，而是固定执行三 reviewer 文档校验。Design/plan review 节点必须保留；execution correctness 则内嵌在 controlled task loop、checkpoint tasks、evidence validation 和 blocker escalation 中，不再设置默认终局 execution-review 节点。
+
+TUI 路线采用 R2-Split：Spec 8 先建立 snapshot-first live progress foundation；后续 8.1/8.2/8.3 增加 interactive decisions、review detail views 和 execution views。无论交互来自 CLI `--resume` 还是 TUI，所有用户决策都必须进入 runtime-owned decision validation path。TUI 只能收集和提交 intent，不能直接写 state、events、approvals、review decisions、review ledgers 或 artifacts；stale snapshot、double-submit 或 checksum mismatch 必须由 runtime fail closed。
 
 ## Error Handling
 
@@ -910,9 +1052,11 @@ Plan review run 和 plan approval 必须绑定 exact approved design、requireme
 
 Reviewer 输出 findings。Design/task 修改应由 revision phase 或 adapter 完成，并生成新 artifact version。
 
-### 5. Resume must be deterministic
+### 5. Resume and runtime-gated TUI decisions must be deterministic
 
 `--resume` 必须基于 `state.json` 和 `events.jsonl` 恢复，不应依赖对话上下文猜测当前阶段。`--resume` 可以自动推进非决策阶段和 automatic plan review，但在 design review decision、design approval 和 plan approval gate 处必须展示用户选择，不能静默选择 design review mode 或自动 approve。
+
+Spec 8.1 后，interactive TUI controls 可以作为 `--resume` 的 richer input surface，但它们必须提交同一类 runtime-owned decision intent。Runtime 必须重新读取 authoritative state、pending gate、artifact refs 和 checksums 后再接受或拒绝决策；TUI snapshot 中的 phase/readiness 只能用于展示，不能作为持久化依据。
 
 ### 6. User gates are non-bypassable
 
@@ -973,6 +1117,19 @@ Reviewer 输出 findings。Design/task 修改应由 revision phase 或 adapter �
 - automatic plan review 或 plan approval 前不能 execution。
 - artifact 被篡改后 stale review decision 或 approval 被拒绝。
 - interrupted workflow 可以通过 `--resume` 恢复。
+- Spec 8 live TUI can observe long-running foreground workflow steps without changing final workflow state compared with non-TUI fallback。
+- Spec 8.1 interactive TUI decisions follow the same runtime validation and persistence path as CLI helper decisions, including stale artifact rejection and double-submit protection。
+
+### TUI tests
+
+- `WorkflowLiveSnapshot` prefers durable state over conflicting live progress events。
+- compact / expanded renderers respect terminal width and have deterministic fallback output。
+- snapshot stale/corrupt/render failure degrades to text fallback without writing workflow state。
+- approval, blocked, failed, partial, incomplete, stale, and done cards never imply approval or readiness beyond runtime status。
+- TUI interactive controls submit decision intent only through runtime facade and cannot import or call gate mutation helpers directly。
+- TUI decision payloads bind exact artifact refs/checksums and are rejected when stale。
+- plan review TUI never offers skip/minimal/full mode, reviewer subset, partial accept, or per-reviewer retry。
+- execution TUI never selects tasks, writes checkboxes, validates evidence, or advances execution state。
 
 ### Security tests
 
@@ -992,10 +1149,12 @@ Reviewer 输出 findings。Design/task 修改应由 revision phase 或 adapter �
 4. Spec 5.2 中 accept incomplete review 的 decision/ref/event schema 应如何绑定 failed reviewer coverage，才能避免被误认为完整 review passed？
 5. `design-review-triage-and-readiness` 中 advanced triage 应采用多大比例的 deterministic merge 与 optional agent summary？
 6. `design-revision-loop` 中哪些 blocking findings 可以自动修订，哪些必须先询问用户？
-7. Controlled execution blocked 后应如何通过 `--resume` 选择 retry、abort、处理 missing dependency 或请求 plan revision？
-8. 是否需要 background async runner？如果需要，应在 workflow runtime 稳定后单独设计。
-9. 是否公开 Pi tool interface？如果公开，如何避免父 LLM 绕过 workflow command/gate？
-10. 是否支持从 `events.jsonl` 自动重建损坏的 `state.json`？
+7. Controlled execution blocked 后应如何通过 `--resume` 或 runtime-gated TUI controls 选择 retry、abort、处理 missing dependency 或请求 plan revision？
+8. Spec 8.1 interactive TUI decision facade 是否应复用 `resumeWorkflow()`，还是新增更窄的 `submitWorkflowDecision()` runtime API？无论选择哪种，validation/persistence path 必须相同。
+9. TUI double-submit protection 使用 gate nonce、decision idempotency key，还是 pendingDecision checksum？
+10. 是否需要 background async runner？如果需要，应在 workflow runtime 稳定后单独设计，且不能混入 Spec 8 foreground live progress foundation。
+11. 是否公开 Pi tool interface？如果公开，如何避免父 LLM 绕过 workflow command/gate？
+12. 是否支持从 `events.jsonl` 自动重建损坏的 `state.json`？
 
 Planning 和 execution 行为必须通过 runtime phases/adapters 暴露，并由 `/brainstorm-pro` runtime 统一触发、校验和持久化。
 
@@ -1014,26 +1173,30 @@ Planning 和 execution 行为必须通过 runtime phases/adapters 暴露，并�
    ↓
 4.1 controlled-spec-exec-adapter
    ↓
-5. workflow-ux-interface minimal
+5. design-review-panel foundation
    ↓
-6. workflow-tui-live-progress minimal
+5.1 design-reviewer-role-pack
    ↓
-7. design-review-panel foundation
+5.2 design-review-execution-control
    ↓
-7.1 design-reviewer-role-pack
+5.3 design-review-triage-and-readiness
    ↓
-7.2 design-review-execution-control
+5.4 design-revision-loop
    ↓
-7.3 design-review-triage-and-readiness
+6. plan-review-panel
    ↓
-7.4 design-revision-loop
+7. workflow-ux-interface
    ↓
-8. plan-review-panel
+8. workflow-tui-live-progress foundation
    ↓
-9. workflow-ux-interface / workflow-tui-live-progress polish
+8.1 workflow-tui-interactive-decisions
+   ↓
+8.2 workflow-tui-review-panel-views
+   ↓
+8.3 workflow-tui-controlled-execution-views
 ```
 
-`workflow-ux-interface` 和 `workflow-tui-live-progress` 应分开设计：前者定义 `/brainstorm-pro --resume`、status、多 workflow 选择、review decision、approval 等交互语义；后者定义 TUI widget、live progress、expanded detail、approval/blocked cards 等显示体验。基础 UX 和最小 TUI 可在 review panels 前提前落地，让后续 multi-agent review 从第一天就接入统一可视化通道。
+`workflow-ux-interface` 和 `workflow-tui-live-progress` 应分开设计：前者定义 `/brainstorm-pro --resume`、status、多 workflow 选择、review decision、approval 等 CLI fallback 与 deterministic rendering 语义；后者定义 TUI widget、live progress、expanded detail、approval/blocked cards 和后续 interactive runtime-gated controls。Spec 8 不是 read-only 终局，而是 R2-Split 的 foundation：live snapshot 与 renderer 先落地，interactive decisions、review detail 和 execution detail 通过 8.1/8.2/8.3 分层补齐。
 
 ## Global Acceptance Criteria
 
@@ -1051,5 +1214,6 @@ Planning 和 execution 行为必须通过 runtime phases/adapters 暴露，并�
 - Workflow 必须可 status、resume、blocked/failed 诊断。
 - 可复用 `nicobailon/pi-subagents` 的业务无关基础设施代码，但不得继承其 generic `subagent` product model；derived code 必须保留 MIT license attribution。
 - 长时间运行或多 Agent 并发阶段必须有可观察 UI：至少提供 compact progress、expanded detail、artifact path 和 non-TUI fallback。
-- UI 只能展示 runtime state/progress snapshot，不能成为状态真相来源，也不能绕过 approval gate。
+- UI snapshot 不能成为状态真相来源，也不能绕过 approval gate。
+- Interactive TUI controls 如被实现，只能提交 runtime-owned decision intent；runtime 必须重新校验 authoritative state、pending gate、artifact refs/checksums、review readiness 和 approval readiness 后才能持久化。
 - 子 spec 必须说明自己在全局架构中的位置、依赖和非目标。
