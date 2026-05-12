@@ -1,0 +1,180 @@
+# Implementation Plan: Workflow UX Interface
+
+## Overview
+
+This implementation plan is driven by the requirements in [requirements.md](requirements.md). The work is split into five implementation phases plus validation checkpoints: first harden command parsing and runtime-bound decision input, then extract a pure UX renderer, then add state-specific views for design review/recovery/approval, then add plan/blocked/terminal views, and finally update docs and optional future interface boundaries. The implementation stays in TypeScript ES modules, keeps `/brainstorm-pro` as the only default public workflow command, and treats `WorkflowRuntimeOrchestrator` as the sole authority for lifecycle validation.
+
+## Tasks
+
+- [✅] 1. Phase 1: Command parser and runtime boundary hardening
+  - [✅] 1.1 Audit and preserve the supported public command forms
+    - Review `extensions/clarification-orchestrator/commands/brainstorm-pro.ts` and keep supported forms limited to start, augment, topic resume, `--resume`, and `--status`
+    - Ensure `/brainstorm-pro --topic <topic>` without request maps to resume and still validates strict English kebab-case topics
+    - Ensure the command handler continues to call `startWorkflow`, `augmentWorkflow`, `resumeWorkflow`, and `getStatus` instead of editing runtime files
+    - _Requirements: 1.1, 1.2, 1.3, 1.4, 1.5, 3.1_
+  - [✅] 1.2 Harden helper flag parsing rules
+    - Update `parseBrainstormProArgs` in `extensions/clarification-orchestrator/commands/brainstorm-pro.ts` so decision helper flags remain valid only with `--resume`
+    - Preserve validation for `--choose-review skip|minimal|full` and `--decision approve|revise|status|exit`
+    - Reject simultaneous review-mode and approval helper decisions before runtime invocation
+    - Add parser rejection for any introduced plan review mode helper with a message that plan review is automatic and fixed
+    - _Requirements: 1.6, 1.7, 2.1, 2.2, 2.3, 2.4, 2.6_
+  - [✅] 1.3 Define extension-safe decision parsing boundaries
+    - Add typed parser helpers or comments near `RuntimeUserDecision` usage documenting how future `--reviewers`, `--retry`, `--accept-incomplete`, and `--authorize-design-revision` flags must map to runtime-owned decision types
+    - Ensure future helper decisions cannot be represented as direct file mutations or renderer-only actions
+    - Keep runtime phase/artifact/review/approval validation outside the parser
+    - _Requirements: 2.5, 3.2, 3.3, 10.5_
+  - [✅]* 1.4 Add command parser unit tests
+    - Update or create tests in `tests/unit/commands/brainstorm-pro.test.ts` for start, augment, topic resume, `--resume`, `--status`, unknown flags, invalid combinations, and helper flags without `--resume`
+    - Add tests for allowed `--choose-review` and `--decision` values and rejection of invalid values
+    - Add a test for plan-review-mode helper rejection if such a helper is introduced in this phase
+    - _Requirements: 1.1, 1.2, 1.3, 1.4, 1.5, 1.6, 1.7, 2.1, 2.2, 2.3, 2.4, 2.6_
+
+- [✅] 2. Phase 2: Pure workflow UX renderer foundation
+  - [✅] 2.1 Create a testable renderer module
+    - Add `extensions/clarification-orchestrator/workflow/ux-renderer.ts` with `renderWorkflowUxResult(result: unknown): string`
+    - Move the current `renderRuntimeResult` behavior out of `commands/brainstorm-pro.ts` into the new pure renderer module
+    - Import and use the new renderer from `handleBrainstormProCommand`
+    - Ensure the renderer has no filesystem writes and no direct runtime mutation capability
+    - _Requirements: 3.1, 3.3, 4.3, 4.6_
+  - [✅] 2.2 Implement safe fallback rendering
+    - In `ux-renderer.ts`, add fallback handling for unknown objects, primitive values, missing fields, and unsupported status shapes
+    - Ensure fallback output never introduces `ready`, `passed`, or `approved` wording unless explicitly present in runtime data
+    - Keep JSON fallback deterministic and readable for diagnostics
+    - _Requirements: 3.6, 4.6_
+  - [✅] 2.3 Implement selection and empty-state views
+    - Render `{ selectionRequired: [] }` as a clear no-runtime-workflows message
+    - Render `{ selectionRequired: [...] }` as a topic selection view with `/brainstorm-pro --resume <topic>` and `/brainstorm-pro --status <topic>` hints
+    - Do not call runtime or advance state from renderer logic
+    - _Requirements: 4.1, 4.2, 3.3_
+  - [✅] 2.4 Implement phase summary and artifact rendering helpers
+    - Add helpers for workflow topic, run id, phase, pending decision type, and last error summary
+    - Add helpers for artifact refs showing kind, version, relative path, and checksum or checksum prefix
+    - Ensure missing artifacts render as absent data rather than as failure unless runtime status already reports an error
+    - _Requirements: 4.3, 4.4, 4.5, 4.6_
+  - [✅]* 2.5 Add renderer foundation unit tests
+    - Create `tests/unit/workflow/ux-renderer.test.ts` or command renderer tests for selection required, empty selection, phase summary, artifact refs, last error summary, and safe fallback
+    - Verify renderer output does not imply state advancement for selection or unknown status cases
+    - _Requirements: 3.6, 4.1, 4.2, 4.3, 4.4, 4.5, 4.6_
+
+- [✅] 3. Checkpoint - Verify parser and renderer foundation
+  - Run `npm run typecheck`
+  - Run `npm run test:unit -- tests/unit/commands/brainstorm-pro.test.ts` if supported by the test harness, otherwise run `npm run test:unit`
+  - Run the new renderer unit tests or `npm run test:unit`
+  - Inspect `extensions/clarification-orchestrator/commands/brainstorm-pro.ts` to confirm it delegates rendering to `workflow/ux-renderer.ts` and does not write runtime files
+  - Confirm requirements 1.1-1.7, 2.1-2.6, 3.1, 3.3, 3.6, and 4.1-4.6 are covered
+  - Stop only if parser behavior contradicts the public command surface, renderer output mutates workflow state, or tests/typecheck fail
+  - _Requirements: 1.1, 1.2, 1.3, 1.4, 1.5, 1.6, 1.7, 2.1, 2.2, 2.3, 2.4, 2.5, 2.6, 3.1, 3.3, 3.6, 4.1, 4.2, 4.3, 4.4, 4.5, 4.6_
+
+- [✅] 4. Phase 3: Design review, recovery, and approval views
+  - [✅] 4.1 Implement design review decision view
+    - In `ux-renderer.ts`, detect `pendingDecision.type === "review-decision"` with target `design`
+    - Render current design artifact ref, available choices from runtime, and explanations for `skip`, `minimal`, `full`, `revise`, and `exit`
+    - Render full reviewer role descriptions for the five package-owned reviewer roles
+    - Render exact design version/checksum binding and stale-selection warning text
+    - _Requirements: 5.1, 5.2, 5.3, 5.4, 5.5, 5.6, 5.7_
+  - [✅] 4.2 Implement design review recovery summary view
+    - Render `reviewStatus.design` for `partial`, `failed`, `blocked`, `unavailable`, and readiness `incomplete-review`
+    - Extract and display review run id, mode, readiness status, ledger path, triage summary, blocking findings, conflicts, unresolved questions, and recovery actions when present
+    - Render selected, unselected, succeeded, and failed reviewer coverage from known coverage fields when available, falling back safely if coverage shape is partial or unknown
+    - Ensure partial/incomplete output explicitly states that it is not passed and not approval readiness
+    - _Requirements: 6.1, 6.2, 6.3, 6.4, 6.5, 6.6_
+  - [✅] 4.3 Implement accept-incomplete warning section
+    - In the design review recovery renderer, detect runtime recovery actions that represent accept-incomplete review
+    - Render incomplete coverage, failed reviewers, succeeded reviewers, aggregated findings summary when available, and exact design artifact ref
+    - State that accept incomplete does not approve the design and only allows movement to the design approval gate
+    - Suppress executable accept-incomplete hints unless the runtime status exposes that recovery action
+    - _Requirements: 7.1, 7.2, 7.3, 7.4, 7.5_
+  - [✅] 4.4 Implement design approval view
+    - Detect `pendingDecision.type === "approval"` with gate `design`
+    - Render design artifact ref, approval choices from runtime, review mode/status/readiness, triage summary, skipped-review warning, and accepted-incomplete warning when status data indicates them
+    - Render must-fix, should-fix, note, conflict, and unresolved-question counts when present in status data
+    - State that design approval is a separate explicit user gate
+    - _Requirements: 8.1, 8.2, 8.3, 8.4, 8.7_
+  - [✅] 4.5 Implement revision handoff view
+    - Render `revisionHandoff` from runtime status or `reviewStatus.design.revisionHandoff`
+    - Include revision id, revised design ref, post-revision review run id, post-review readiness/triage summary when available, blocking question ids, and recovery actions
+    - State that old review/triage evidence is provenance only and cannot approve the revised design ref
+    - Ensure a passed post-revision review still renders the explicit design approval gate if the phase is `awaiting-design-approval`
+    - _Requirements: 8.5, 8.6, 8.7_
+  - [✅]* 4.6 Add design review renderer unit tests
+    - Test design review decision output includes artifact binding, choices, skip/minimal/full explanations, reviewer roles, and stale-selection warning
+    - Test partial/incomplete output includes coverage groups and does not contain text implying passed/approval
+    - Test failed reviewer recovery only appears when runtime recovery actions include retry
+    - Test accept-incomplete warning appears only when runtime exposes the action and includes the required warnings
+    - Test design approval and revision handoff views include required summaries and warnings
+    - _Requirements: 5.1, 5.2, 5.3, 5.4, 5.5, 5.6, 5.7, 6.1, 6.2, 6.3, 6.4, 6.5, 6.6, 7.1, 7.2, 7.3, 7.4, 7.5, 8.1, 8.2, 8.3, 8.4, 8.5, 8.6, 8.7_
+
+- [✅] 5. Phase 4: Plan review, blocked/failed, and terminal views
+  - [✅] 5.1 Implement automatic plan review view
+    - Render plan review status from `WorkflowRuntimeStatus.planReviewStatus` and/or `reviewStatus.plan.planReview`
+    - Include approved design ref, current requirements ref, current tasks ref, plan review run id, ledger path, readiness, and automatic revision attempt status when available
+    - List the fixed reviewers: `requirements-coverage-reviewer`, `task-coverage-reviewer`, and `dependency-order-reviewer`
+    - State that plan review is automatic and fixed and has no `skip`, `minimal`, or `full` user mode
+    - _Requirements: 9.1, 9.2, 9.3, 9.4_
+  - [✅] 5.2 Implement plan approval view
+    - Detect `pendingDecision.type === "approval"` with gate `plan`
+    - Render reviewed requirements/tasks refs, latest requirements/tasks refs, plan review readiness, and approval choices from runtime
+    - State that runtime will validate plan approval against the latest ready automatic plan review binding
+    - Avoid rendering plan approval as executable when readiness is blocked, failed, or stale unless runtime phase/pending decision explicitly permits approval
+    - _Requirements: 9.5, 9.6, 9.7_
+  - [✅] 5.3 Implement blocked and failed recovery views
+    - Render blocked phase with last error, recoverability, diagnostics, recovery actions, ledger/status paths, and safe next-command hints
+    - Render failed phase with failure details and no retry/approval/recovery action unless runtime status explicitly exposes one
+    - Ensure ordinary resume output for blocked/failed states does not imply automatic advancement
+    - _Requirements: 3.5, 10.1, 10.2_
+  - [✅] 5.4 Implement done view
+    - Render terminal workflow status, topic, run id, final artifact refs, and execution report summary when available
+    - Do not render a resume-next-action that implies further workflow advancement
+    - _Requirements: 10.3_
+  - [✅]* 5.5 Add plan, error, and terminal renderer unit tests
+    - Test ready plan review output includes fixed reviewer names and no mode selection
+    - Test blocked-needs-plan-revision, blocked-needs-design-revision, failed, and stale readiness output does not offer unsafe plan approval
+    - Test plan approval output includes reviewed/latest refs and binding validation warning
+    - Test blocked and failed views do not auto-advance or imply unsafe recovery
+    - Test done view has terminal status and no resume advancement hint
+    - _Requirements: 3.5, 9.1, 9.2, 9.3, 9.4, 9.5, 9.6, 9.7, 10.1, 10.2, 10.3_
+
+- [✅] 6. Checkpoint - Verify state-specific renderer coverage
+  - Run `npm run typecheck`
+  - Run renderer unit tests and command parser tests with `npm run test:unit`
+  - Inspect representative fixtures or inline test states for design review decision, partial review, accept incomplete, design approval, revision handoff, plan review, blocked, failed, and done views
+  - Confirm requirements 5.1-5.7, 6.1-6.6, 7.1-7.5, 8.1-8.7, 9.1-9.7, and 10.1-10.3 are covered
+  - Stop only if renderer output hides incomplete/stale/blocked states, implies approval from readiness, exposes plan review modes, or tests/typecheck fail
+  - _Requirements: 5.1, 5.2, 5.3, 5.4, 5.5, 5.6, 5.7, 6.1, 6.2, 6.3, 6.4, 6.5, 6.6, 7.1, 7.2, 7.3, 7.4, 7.5, 8.1, 8.2, 8.3, 8.4, 8.5, 8.6, 8.7, 9.1, 9.2, 9.3, 9.4, 9.5, 9.6, 9.7, 10.1, 10.2, 10.3_
+
+- [✅] 7. Phase 5: Integration behavior and documentation alignment
+  - [✅] 7.1 Add command integration tests for resume/status rendering
+    - Add or update integration tests under `tests/integration/` or unit-level command harness tests to exercise `/brainstorm-pro --resume` with multiple topics and confirm no workflow advances
+    - Test status/resume rendering for a topic with artifacts and pending decisions
+    - Test blocked/failed resume returns diagnostics rather than running active phases
+    - _Requirements: 3.4, 3.5, 4.1, 4.3, 4.4, 4.5, 10.1, 10.2_
+  - [✅] 7.2 Align README command and UX documentation
+    - Update `README.md` command section to describe the state-aware renderer, helper flags as advanced shortcuts, and plan review as automatic/fixed
+    - Document that review readiness is not approval and accept incomplete does not approve design
+    - Document safe next-command hints for resume/status without adding new default public subcommands
+    - _Requirements: 1.1, 1.4, 1.5, 2.5, 7.3, 7.4, 8.7, 9.3, 9.6_
+  - [✅] 7.3 Add or update docs alignment tests
+    - Update `tests/unit/docs/workflow-runtime.test.ts` or relevant docs tests to verify README public command forms match parser behavior
+    - Verify docs state that helper flags are advanced/internal shortcuts and that plan review has no user-selected mode
+    - Verify docs state that readiness and approval are separate concepts
+    - _Requirements: 1.1, 1.2, 1.3, 1.4, 1.5, 2.5, 9.3_
+  - [✅] 7.4 Preserve optional future tool interface boundary
+    - Review `invokeBrainstormingProRuntime` and related types in `extensions/clarification-orchestrator/workflow/runtime.ts`
+    - Ensure any tool-facing intent continues to expose only start, augment, resume, and status behavior through the same runtime paths
+    - Add comments or tests if needed to prevent generic subagent orchestration, arbitrary chains, or background async runner behavior from entering the UX/tool boundary
+    - _Requirements: 10.4, 10.5, 10.6_
+  - [✅]* 7.5 Run full validation
+    - Run `npm run typecheck`
+    - Run `npm test`
+    - Run `npm run validate-package`
+    - Inspect `specs/workflow-ux-interface/requirements.md` and `specs/workflow-ux-interface/tasks.md` to confirm task traceability remains valid
+    - _Requirements: 1.1, 1.2, 1.3, 1.4, 1.5, 1.6, 1.7, 2.1, 2.2, 2.3, 2.4, 2.5, 2.6, 3.1, 3.2, 3.3, 3.4, 3.5, 3.6, 4.1, 4.2, 4.3, 4.4, 4.5, 4.6, 5.1, 5.2, 5.3, 5.4, 5.5, 5.6, 5.7, 6.1, 6.2, 6.3, 6.4, 6.5, 6.6, 7.1, 7.2, 7.3, 7.4, 7.5, 8.1, 8.2, 8.3, 8.4, 8.5, 8.6, 8.7, 9.1, 9.2, 9.3, 9.4, 9.5, 9.6, 9.7, 10.1, 10.2, 10.3, 10.4, 10.5, 10.6_
+
+## Notes
+
+- Tasks marked with `*` are optional and can be skipped for an MVP.
+- Each task references one or more requirement IDs for traceability.
+- Keep task numbering stable so requirement references stay valid.
+- This spec intentionally implements deterministic text rendering and next-command hints, not Spec 8 live TUI widgets.
+- UX output must remain a projection of runtime state/status; if a needed field is missing, extend the runtime status contract instead of reading or mutating private workflow files from the renderer.
+- Plan review remains automatic and fixed; do not add plan review `skip`, `minimal`, `full`, reviewer subset, or accept-incomplete UX.

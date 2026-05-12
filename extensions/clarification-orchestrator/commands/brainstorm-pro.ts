@@ -3,12 +3,20 @@ import { tokenizeArgs } from "../options.ts";
 import { validateClarificationTopicSlug } from "../topic-validation.ts";
 import { getStatus, resumeWorkflow, startWorkflow, augmentWorkflow, type RuntimeUserDecision } from "../workflow/runtime.ts";
 import { proposeWorkflowTopic } from "../workflow/topic-proposal.ts";
+import { renderWorkflowUxResult } from "../workflow/ux-renderer.ts";
 
 export type BrainstormProOptions =
   | { action: "start"; request: string }
   | { action: "augment"; request: string; topic: string }
   | { action: "resume"; topic?: string; decision?: RuntimeUserDecision }
   | { action: "status"; topic?: string };
+
+// Decision helper flags are parser-only conveniences. Every parsed helper must
+// become a RuntimeUserDecision and flow through resumeWorkflow so runtime code
+// remains responsible for phase, artifact, review, and approval validation.
+// Future helpers such as --reviewers, --retry, --accept-incomplete, and
+// --authorize-design-revision must follow this boundary and must not mutate
+// workflow files or act as renderer-only lifecycle shortcuts.
 
 export async function handleBrainstormProCommand(args: string, ctx: ExtensionCommandContext): Promise<void> {
   try {
@@ -28,11 +36,11 @@ export async function handleBrainstormProCommand(args: string, ctx: ExtensionCom
     }
     if (options.action === "resume") {
       const result = await resumeWorkflow({ cwd, topic: options.topic, decision: options.decision });
-      ctx.ui.notify(renderRuntimeResult(result), "info");
+      ctx.ui.notify(renderWorkflowUxResult(result), "info");
       return;
     }
     const status = await getStatus(cwd, options.topic);
-    ctx.ui.notify(renderRuntimeResult(status), "info");
+    ctx.ui.notify(renderWorkflowUxResult(status), "info");
   } catch (error) {
     ctx.ui.notify(error instanceof Error ? error.message : String(error), "error");
   }
@@ -74,6 +82,9 @@ export function parseBrainstormProArgs(args: string): BrainstormProOptions {
       approvalDecision = { type: "approval", action, user: "command-user" };
       continue;
     }
+    if (token === "--plan-review-mode" || token === "--choose-plan-review") {
+      throw new Error("Plan review is automatic and fixed; /brainstorm-pro does not support plan review mode selection.");
+    }
     if (token.startsWith("--")) throw new Error(`Unknown /brainstorm-pro option '${token}'.`);
     requestParts.push(token);
   }
@@ -81,26 +92,26 @@ export function parseBrainstormProArgs(args: string): BrainstormProOptions {
   if (resume && status) throw new Error("Use either --resume or --status, not both.");
   if (reviewMode && approvalDecision) throw new Error("Choose either a review mode or approval decision, not both.");
   if ((reviewMode || approvalDecision) && !resume) throw new Error("Runtime decisions are handled through /brainstorm-pro --resume.");
-  if (resume) return { action: "resume", topic: topic ?? requestParts[0], decision: reviewMode ?? approvalDecision };
-  if (status) return { action: "status", topic: topic ?? requestParts[0] };
+  if ((resume || status) && requestParts.length > 1) throw new Error("Resume/status accepts at most one workflow topic.");
+  const positionalTopic = requestParts[0];
+  const selectedTopic = topic ?? positionalTopic;
+  if (resume) {
+    if (selectedTopic) validateClarificationTopicSlug(selectedTopic);
+    return { action: "resume", topic: selectedTopic, decision: reviewMode ?? approvalDecision };
+  }
+  if (status) {
+    if (selectedTopic) validateClarificationTopicSlug(selectedTopic);
+    return { action: "status", topic: selectedTopic };
+  }
   const request = requestParts.join(" ").trim();
-  if (!request && topic) return { action: "resume", topic, decision: undefined };
+  if (!request && topic) {
+    validateClarificationTopicSlug(topic);
+    return { action: "resume", topic, decision: undefined };
+  }
   if (!request) throw new Error("Missing request. Usage: /brainstorm-pro \"<request>\", /brainstorm-pro \"<request>\" --topic <existing-topic>, /brainstorm-pro --topic <existing-topic>, /brainstorm-pro --resume [topic], or /brainstorm-pro --status [topic].");
   if (topic) {
     validateClarificationTopicSlug(topic);
     return { action: "augment", request, topic };
   }
   return { action: "start", request };
-}
-
-function renderRuntimeResult(result: unknown): string {
-  if (typeof result === "object" && result && "selectionRequired" in result) {
-    const topics = (result as { selectionRequired: string[] }).selectionRequired;
-    return topics.length ? `Select a workflow topic to resume: ${topics.join(", ")}` : "No runtime-managed workflows found.";
-  }
-  if (typeof result === "object" && result && "phase" in result) {
-    const state = result as { topic?: string; runId?: string; phase: string; pendingDecision?: { type: string } };
-    return [`Workflow ${state.topic ?? "status"}`, state.runId ? `Run: ${state.runId}` : undefined, `Phase: ${state.phase}`, state.pendingDecision ? `Pending: ${state.pendingDecision.type}` : undefined].filter(Boolean).join("\n");
-  }
-  return JSON.stringify(result, null, 2);
 }

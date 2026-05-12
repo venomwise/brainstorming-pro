@@ -35,6 +35,10 @@ test("README documents runtime commands, gates, and layout", async () => {
     "accept-incomplete-decision.json",
     "readiness.json",
     "Review readiness is not the same as approval",
+    "deterministic state-aware UX layer",
+    "advanced shortcuts accepted only with `--resume`",
+    "no user-selected plan review `skip`, `minimal`, or `full` mode helper",
+    "Accept incomplete is a separate explicit user decision",
   ]) {
     assert.ok(readme.includes(expected), `README should include ${expected}`);
   }

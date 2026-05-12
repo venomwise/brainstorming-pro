@@ -63,6 +63,12 @@ export type RuntimeUserDecision =
   | { type: "review-mode"; mode: ReviewMode; user: string }
   | { type: "approval"; action: "approve" | "revise" | "status" | "exit"; user: string };
 
+// Optional tool-facing input intentionally mirrors the public command boundary:
+// start, augment, resume, or status only. Tool integrations may carry a
+// RuntimeUserDecision on resume, but runtime code remains the only authority
+// for artifact binding, review/retry/accept-incomplete, approval gates, and
+// lifecycle transitions. Do not add generic subagent orchestration, arbitrary
+// chains, or background async runner behavior to this boundary.
 export type BrainstormingProToolInput =
   | { action: "start"; cwd: string; topic: string; request: string }
   | { action: "augment"; cwd: string; topic: string; request: string }
