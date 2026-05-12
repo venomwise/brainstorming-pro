@@ -12,7 +12,7 @@ const unconditionalTransitions: Partial<Record<WorkflowPhase, WorkflowPhase[]>> 
   designing: ["awaiting-design-review-decision", "blocked", "failed"],
   "design-review": ["awaiting-design-approval", "blocked", "failed"],
   "awaiting-design-approval": ["planning", "designing", "blocked", "failed"],
-  planning: ["awaiting-plan-review-decision", "blocked", "failed"],
+  planning: ["plan-review", "blocked", "failed"],
   "plan-review": ["awaiting-plan-approval", "blocked", "failed"],
   "awaiting-plan-approval": ["executing", "planning", "blocked", "failed"],
   executing: ["execution-review", "done", "blocked", "failed"],
@@ -29,12 +29,6 @@ export function canTransition(from: WorkflowPhase, to: WorkflowPhase, context: T
     if (to === "awaiting-design-approval") return context.reviewMode === "skip";
     if (to === "design-review") return context.reviewMode === "minimal" || context.reviewMode === "full";
     return to === "designing" || to === "blocked" || to === "failed";
-  }
-
-  if (from === "awaiting-plan-review-decision") {
-    if (to === "awaiting-plan-approval") return context.reviewMode === "skip";
-    if (to === "plan-review") return context.reviewMode === "minimal" || context.reviewMode === "full";
-    return to === "planning" || to === "blocked" || to === "failed";
   }
 
   if (from === "blocked" && to === "awaiting-design-approval") return context.acceptIncompleteDesignReview === true || context.retryDesignReviewSucceeded === true;

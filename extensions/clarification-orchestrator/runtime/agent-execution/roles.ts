@@ -114,6 +114,42 @@ export const AGENT_ROLE_DEFINITIONS: Record<AgentRole, AgentRoleDefinition> = {
     allowSession: false,
     ...DEFAULT_LIMITS,
   },
+  "requirements-coverage-reviewer": {
+    role: "requirements-coverage-reviewer",
+    description: "Reviews approved design coverage in plan requirements.",
+    allowedPhases: ["plan-review"],
+    expectedResultKind: "review-findings",
+    allowSkills: false,
+    allowSession: false,
+    ...DEFAULT_LIMITS,
+  },
+  "task-coverage-reviewer": {
+    role: "task-coverage-reviewer",
+    description: "Reviews task coverage against requirements and validation expectations.",
+    allowedPhases: ["plan-review"],
+    expectedResultKind: "review-findings",
+    allowSkills: false,
+    allowSession: false,
+    ...DEFAULT_LIMITS,
+  },
+  "dependency-order-reviewer": {
+    role: "dependency-order-reviewer",
+    description: "Reviews controlled execution task order, dependencies, and checkpoint placement.",
+    allowedPhases: ["plan-review"],
+    expectedResultKind: "review-findings",
+    allowSkills: false,
+    allowSession: false,
+    ...DEFAULT_LIMITS,
+  },
+  "plan-reviser": {
+    role: "plan-reviser",
+    description: "Produces revised requirements and tasks for one workflow-owned automatic plan revision attempt.",
+    allowedPhases: ["plan-review"],
+    expectedResultKind: "artifact-draft",
+    allowSkills: false,
+    allowSession: false,
+    ...DEFAULT_LIMITS,
+  },
 };
 
 export function isAgentRole(value: string): value is AgentRole {

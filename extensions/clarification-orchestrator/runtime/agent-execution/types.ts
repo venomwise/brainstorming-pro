@@ -10,7 +10,11 @@ export type AgentRole =
   | "architecture-reviewer"
   | "risk-security-reviewer"
   | "testing-reviewer"
-  | "scope-simplicity-reviewer";
+  | "scope-simplicity-reviewer"
+  | "requirements-coverage-reviewer"
+  | "task-coverage-reviewer"
+  | "dependency-order-reviewer"
+  | "plan-reviser";
 
 export type AgentResultKind = "artifact-draft" | "review-findings" | "execution-report";
 

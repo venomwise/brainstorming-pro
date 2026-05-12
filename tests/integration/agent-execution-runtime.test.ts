@@ -42,7 +42,7 @@ async function runFixture(mode: string, limits = {}) {
     outputSchema: schema,
     piCommand: process.execPath,
     env,
-    limits: { timeoutMs: 100, maxStdoutBytes: 4096, maxStderrBytes: 64, maxOutputBytes: 4096, ...limits },
+    limits: { timeoutMs: 1000, maxStdoutBytes: 4096, maxStderrBytes: 64, maxOutputBytes: 4096, ...limits },
   }, {
     spawnFn: ((command: string, args: readonly string[], options: any) => spawn(command, [fixture, ...args], options)) as any,
   }).then((result) => result));

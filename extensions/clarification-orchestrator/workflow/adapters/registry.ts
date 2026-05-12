@@ -5,7 +5,7 @@ import { createAdapterRegistry, type PhaseAdapter } from "./types.ts";
 import type { WorkflowAdapter } from "../runtime.ts";
 import type { WorkflowState } from "../types.ts";
 import { createDesignReviewAdapter, designReviewAdapter } from "./design-review.ts";
-import { planReviewAdapter } from "./plan-review.ts";
+import { createPlanReviewAdapter, planReviewAdapter } from "./plan-review.ts";
 import { executionReviewAdapter } from "./execution-review.ts";
 
 export function defaultWorkflowAdapters(projectRoot: string, model = process.env.BRAINSTORMING_PRO_AGENT_MODEL ?? "openai:gpt-4o-mini") {
@@ -13,6 +13,7 @@ export function defaultWorkflowAdapters(projectRoot: string, model = process.env
     designing: asWorkflowAdapter(createBrainstormingAdapter({ projectRoot, model })),
     planning: asWorkflowAdapter(createSpecPlanAdapter({ projectRoot, model })),
     "design-review": asWorkflowAdapter(createDesignReviewAdapter({ projectRoot, model })),
+    "plan-review": asWorkflowAdapter(createPlanReviewAdapter({ projectRoot, model })),
     executing: asWorkflowAdapter(createSpecExecAdapter({ projectRoot, model })),
   };
 }

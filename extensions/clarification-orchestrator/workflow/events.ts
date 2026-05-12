@@ -58,6 +58,16 @@ export type DesignReviewIncompleteAcceptedPayload = {
   acceptedAt: string;
 };
 
+export type PlanReviewEventPayload =
+  | { type: "plan-review-started"; details: { reviewRunId: string; artifactRefs: VersionedArtifactRef[]; ledgerPath: string } }
+  | { type: "plan-review-reviewer-completed"; details: { reviewRunId: string; reviewerRole: string; status: string } }
+  | { type: "plan-review-readiness"; details: { reviewRunId: string; readinessStatus: string; ledgerPath: string } }
+  | { type: "plan-revision-started"; details: { revisionId: string; sourceReviewRunId: string } }
+  | { type: "plan-revision-committed"; details: { revisionId: string; artifactRefs: VersionedArtifactRef[]; ledgerPath: string } }
+  | { type: "plan-review-rereview-started"; details: { reviewRunId: string; revisionId: string; artifactRefs: VersionedArtifactRef[] } }
+  | { type: "plan-review-blocked"; details: { reviewRunId: string; readinessStatus: string; diagnostics?: unknown } }
+  | { type: "plan-review-failed"; details: { reviewRunId: string; diagnostics?: unknown } };
+
 export type DesignReviewExecutionControlEventPayload =
   | { type: "design-review-reviewer-selection-recorded"; details: DesignReviewReviewerSelectionRecordedPayload }
   | { type: "design-review-attempt-started"; details: DesignReviewAttemptStartedPayload }

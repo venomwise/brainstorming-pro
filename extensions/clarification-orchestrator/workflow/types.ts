@@ -25,6 +25,8 @@ export type VersionedArtifactRef = {
 
 export type ReviewMode = "skip" | "minimal" | "full";
 
+export type PlanReviewReadinessStatus = "ready-for-plan-approval" | "blocked-needs-plan-revision" | "blocked-needs-design-revision" | "failed" | "stale";
+
 export type ReviewTarget = "design" | "plan" | "execution";
 
 export type FullDesignReviewerRole =
@@ -88,8 +90,18 @@ export type ReviewPhaseStatus = {
   revisionHandoff?: {
     revisionId: string;
     revisedDesignRef: VersionedArtifactRef;
+    revisedRequirementsRef?: VersionedArtifactRef;
+    revisedTasksRef?: VersionedArtifactRef;
     postRevisionReviewRunId?: string;
     blockingQuestionIds?: string[];
+  };
+  planReview?: {
+    automatic: true;
+    reviewRunId: string;
+    ledgerPath: string;
+    readinessStatus: PlanReviewReadinessStatus;
+    reviewedArtifacts: VersionedArtifactRef[];
+    revisionAttempted?: boolean;
   };
   completedAt?: string;
 };

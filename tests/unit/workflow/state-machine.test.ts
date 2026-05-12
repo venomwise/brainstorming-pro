@@ -6,8 +6,8 @@ test("allows core happy path transitions", () => {
   assert.equal(transition("designing", "awaiting-design-review-decision"), "awaiting-design-review-decision");
   assert.equal(transition("awaiting-design-review-decision", "awaiting-design-approval", { reviewMode: "skip" }), "awaiting-design-approval");
   assert.equal(transition("awaiting-design-approval", "planning"), "planning");
-  assert.equal(transition("planning", "awaiting-plan-review-decision"), "awaiting-plan-review-decision");
-  assert.equal(transition("awaiting-plan-review-decision", "awaiting-plan-approval", { reviewMode: "skip" }), "awaiting-plan-approval");
+  assert.equal(transition("planning", "plan-review"), "plan-review");
+  assert.equal(transition("plan-review", "awaiting-plan-approval"), "awaiting-plan-approval");
   assert.equal(transition("awaiting-plan-approval", "executing"), "executing");
   assert.equal(transition("executing", "done"), "done");
 });
@@ -19,10 +19,9 @@ test("enforces review decision mode boundaries", () => {
   assert.equal(canTransition("awaiting-design-review-decision", "design-review", { reviewMode: "full" }), true);
   assert.equal(canTransition("awaiting-design-review-decision", "design-review", { reviewMode: "skip" }), false);
 
-  assert.equal(canTransition("awaiting-plan-review-decision", "awaiting-plan-approval"), false);
-  assert.equal(canTransition("awaiting-plan-review-decision", "awaiting-plan-approval", { reviewMode: "skip" }), true);
-  assert.equal(canTransition("awaiting-plan-review-decision", "plan-review", { reviewMode: "minimal" }), true);
-  assert.equal(canTransition("awaiting-plan-review-decision", "plan-review", { reviewMode: "full" }), true);
+  assert.equal(canTransition("planning", "awaiting-plan-review-decision"), false);
+  assert.equal(canTransition("planning", "plan-review"), true);
+  assert.equal(canTransition("plan-review", "awaiting-plan-approval"), true);
 });
 
 test("rejects illegal and terminal transitions", () => {

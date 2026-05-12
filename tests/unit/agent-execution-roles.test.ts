@@ -14,6 +14,10 @@ const expectedRoles: AgentRole[] = [
   "risk-security-reviewer",
   "testing-reviewer",
   "scope-simplicity-reviewer",
+  "requirements-coverage-reviewer",
+  "task-coverage-reviewer",
+  "dependency-order-reviewer",
+  "plan-reviser",
 ];
 
 test("agent role registry defines workflow roles with no skills and no session", () => {
@@ -45,6 +49,10 @@ test("validateRoleForPhase accepts roles only in their allowed workflow phases",
   assert.equal(validateRoleForPhase("risk-security-reviewer", "design-review").ok, true);
   assert.equal(validateRoleForPhase("testing-reviewer", "design-review").ok, true);
   assert.equal(validateRoleForPhase("scope-simplicity-reviewer", "design-review").ok, true);
+  assert.equal(validateRoleForPhase("requirements-coverage-reviewer", "plan-review").ok, true);
+  assert.equal(validateRoleForPhase("task-coverage-reviewer", "plan-review").ok, true);
+  assert.equal(validateRoleForPhase("dependency-order-reviewer", "plan-review").ok, true);
+  assert.equal(validateRoleForPhase("plan-reviser", "plan-review").ok, true);
 
   const fullReviewerMismatch = validateRoleForPhase("product-reviewer", "planning");
   assert.equal(fullReviewerMismatch.ok, false);

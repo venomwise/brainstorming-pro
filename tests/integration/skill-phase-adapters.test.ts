@@ -58,7 +58,7 @@ test("runtime commits generated design then generated plan and stops at gates", 
 
   await runtime.resumeWorkflow("my-topic", { type: "review-mode", mode: "skip", user: "u" });
   const planning = await runtime.resumeWorkflow("my-topic", { type: "approval", action: "approve", user: "u" });
-  assert.equal("phase" in planning && planning.phase, "awaiting-plan-review-decision");
+  assert.equal("phase" in planning && planning.phase, "plan-review");
   assert.equal(await fs.readFile(path.join(cwd, "specs", "my-topic", "requirements.md"), "utf8"), "# Requirements\n");
   assert.equal(await fs.readFile(path.join(cwd, "specs", "my-topic", "tasks.md"), "utf8"), tasksMarkdown);
 });
