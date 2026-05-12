@@ -2,7 +2,7 @@ import type { PhaseAdapter, AdapterPhaseResult } from "./types.ts";
 import { buildSpecPlanAdapterContext } from "./context.ts";
 import { buildSpecPlanPrompt } from "./prompts/spec-plan.ts";
 import { createPlanDraftOutputSchema, type PlanDraftOutput } from "./schemas.ts";
-import { agentFailureResult, resolveRunAgent, type AgentBackedAdapterOptions } from "./agent-backed.ts";
+import { agentFailureResult, resolveRunAgent, workflowAgentProgressCallback, type AgentBackedAdapterOptions } from "./agent-backed.ts";
 import type { WorkflowState } from "../types.ts";
 
 export type SpecPlanAdapterOutput = AdapterPhaseResult;
@@ -38,6 +38,7 @@ export function createSpecPlanAdapter(options: AgentBackedAdapterOptions): Phase
           state,
         },
         outputSchema: createPlanDraftOutputSchema(state.topic),
+        onProgress: workflowAgentProgressCallback(options, state),
       });
       if (result.status !== "succeeded" || !result.output) return agentFailureResult(result);
       return {

@@ -1,4 +1,4 @@
-import { resolveRunAgent } from "../agent-backed.ts";
+import { resolveRunAgent, workflowAgentProgressCallback } from "../agent-backed.ts";
 import { normalizeDesignReviewFindings } from "./finding-normalizer.ts";
 import { designReviewerOutputSchema } from "./schemas.ts";
 import type { BoundDesignArtifact } from "./artifact-binding.ts";
@@ -35,6 +35,7 @@ export async function runFullDesignReviewer(input: {
         state: input.state,
       },
       outputSchema: designReviewerOutputSchema,
+      onProgress: workflowAgentProgressCallback(input.options, input.state, "design-review"),
     });
 
     if (result.status !== "succeeded" || !result.output) {

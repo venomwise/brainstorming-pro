@@ -1,5 +1,5 @@
 import fs from "node:fs/promises";
-import { agentFailureResult, resolveRunAgent, type AgentBackedAdapterOptions } from "./agent-backed.ts";
+import { agentFailureResult, resolveRunAgent, workflowAgentProgressCallback, type AgentBackedAdapterOptions } from "./agent-backed.ts";
 import { buildSpecExecAdapterContext } from "./spec-exec/context.ts";
 import { runExecutionLoop } from "./spec-exec/execution-loop.ts";
 import { markPhaseComplete, markTaskComplete } from "./spec-exec/checkbox-writer.ts";
@@ -68,6 +68,7 @@ export function createSpecExecAdapter(options: AgentBackedAdapterOptions): Phase
             state,
           },
           outputSchema: createSingleTaskExecutionResultSchema(task),
+          onProgress: workflowAgentProgressCallback(options, state),
         });
 
         if (result.status !== "succeeded" || !result.output) return agentFailureResult(result);

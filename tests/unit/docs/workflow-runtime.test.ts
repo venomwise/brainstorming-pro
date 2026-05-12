@@ -36,11 +36,28 @@ test("README documents runtime commands, gates, and layout", async () => {
     "readiness.json",
     "Review readiness is not the same as approval",
     "deterministic state-aware UX layer",
+    "read-only live progress presentation",
+    "deterministic text fallback",
     "advanced shortcuts accepted only with `--resume`",
     "no user-selected plan review `skip`, `minimal`, or `full` mode helper",
     "Accept incomplete is a separate explicit user decision",
   ]) {
     assert.ok(readme.includes(expected), `README should include ${expected}`);
+  }
+});
+
+test("TUI scaffold docs describe snapshot-first foundation and interactive boundary", async () => {
+  const tuiReadme = await read("extensions/clarification-orchestrator/tui/README.md");
+  for (const expected of [
+    "WorkflowLiveSnapshot",
+    "workflow-widget.ts",
+    "workflow-result.ts",
+    "workflow-session.ts",
+    "presentation data only",
+    "Spec 8.1 is responsible for any future interactive runtime-gated decisions",
+    "Non-TUI fallback",
+  ]) {
+    assert.ok(tuiReadme.includes(expected), `TUI README should include ${expected}`);
   }
 });
 

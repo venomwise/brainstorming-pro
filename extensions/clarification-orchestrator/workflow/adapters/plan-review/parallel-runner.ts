@@ -1,5 +1,7 @@
 import { runAgent } from "../../../runtime/agent-execution/run-agent.ts";
-import type { AgentRunResult, ProviderQualifiedModel } from "../../../runtime/agent-execution/types.ts";
+import type { AgentProgressEvent, AgentRunResult, ProviderQualifiedModel } from "../../../runtime/agent-execution/types.ts";
+import { agentProgressToWorkflowProgress } from "../../progress-adapters.ts";
+import type { WorkflowProgressEvent } from "../../progress-types.ts";
 import type { VersionedArtifactRef, WorkflowState } from "../../types.ts";
 import { planReviewerOutputSchema } from "./schemas.ts";
 import { buildPlanReviewerPrompt } from "./prompts/shared.ts";
@@ -18,12 +20,24 @@ export type RunPlanReviewersInput = {
   state?: WorkflowState;
   piCommand?: string;
   env?: NodeJS.ProcessEnv;
+  onWorkflowProgress?: (event: WorkflowProgressEvent) => void | Promise<void>;
 };
 
 export type PlanReviewerAgentResult = {
   role: PlanReviewerRole;
   result: AgentRunResult<PlanReviewerOutput>;
 };
+
+function planReviewerProgressCallback(input: RunPlanReviewersInput, role: PlanReviewerRole): ((event: AgentProgressEvent) => void | Promise<void>) | undefined {
+  if (!input.onWorkflowProgress) return undefined;
+  return async (event: AgentProgressEvent): Promise<void> => {
+    try {
+      await input.onWorkflowProgress?.(agentProgressToWorkflowProgress(event, { topic: input.topic, runId: input.workflowRunId, phase: "plan-review", role }));
+    } catch {
+      // Progress callbacks are diagnostic-only and must not fail plan review.
+    }
+  };
+}
 
 export async function runFixedPlanReviewers(input: RunPlanReviewersInput): Promise<{ ok: true; results: PlanReviewerAgentResult[] } | { ok: false; results: PlanReviewerAgentResult[]; reason: string }> {
   const reviewers = getFixedPlanReviewers();
@@ -40,6 +54,7 @@ export async function runFixedPlanReviewers(input: RunPlanReviewersInput): Promi
       limits: { maxRetries: 0 },
       piCommand: input.piCommand,
       env: input.env,
+      onProgress: planReviewerProgressCallback(input, role),
     });
     return { role, result };
   }));

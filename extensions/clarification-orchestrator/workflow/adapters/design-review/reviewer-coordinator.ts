@@ -1,4 +1,4 @@
-import { resolveRunAgent, type AgentBackedAdapterOptions, type RunAgentFunction } from "../agent-backed.ts";
+import { resolveRunAgent, workflowAgentProgressCallback, type AgentBackedAdapterOptions, type RunAgentFunction } from "../agent-backed.ts";
 import { buildMinimalDesignReviewPrompt, buildMinimalDesignReviewSystemPrompt } from "./prompts/minimal-review.ts";
 import { minimalDesignReviewOutputSchema } from "./schemas.ts";
 import { normalizeDesignReviewFindings } from "./finding-normalizer.ts";
@@ -69,6 +69,7 @@ export async function runMinimalDesignReviewer(input: {
       state: input.state,
     },
     outputSchema: minimalDesignReviewOutputSchema,
+    onProgress: workflowAgentProgressCallback(input.options, input.state, "design-review"),
   });
   if (result.status !== "succeeded" || !result.output) {
     return {

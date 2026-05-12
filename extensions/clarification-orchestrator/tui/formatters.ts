@@ -23,6 +23,8 @@ export type WorkflowStepSummary = {
   status?: "completed" | "failed" | "skipped";
 };
 
+export type WorkflowStatusGlyph = "running" | "completed" | "blocked" | "failed" | "awaiting-user" | "done" | "stale" | "pending" | "info";
+
 export function formatWorkflowTokens(count: number): string {
   if (!Number.isFinite(count)) return "0";
   const safeCount = Math.max(0, Math.trunc(count));
@@ -55,6 +57,59 @@ export function shortenWorkflowPath(filePath: string, home = process.env.HOME): 
   if (home && filePath === home) return "~";
   if (home && filePath.startsWith(`${home}/`)) return `~${filePath.slice(home.length)}`;
   return filePath;
+}
+
+export function formatWorkflowStatusGlyph(status: WorkflowStatusGlyph | string): string {
+  switch (status) {
+    case "running":
+      return "…";
+    case "completed":
+    case "done":
+      return "✅";
+    case "blocked":
+      return "⏸";
+    case "failed":
+      return "❌";
+    case "awaiting-user":
+      return "⏳";
+    case "stale":
+      return "⚠";
+    case "pending":
+      return "○";
+    default:
+      return "•";
+  }
+}
+
+export function formatWorkflowCount(completed: number, total: number, label: string): string {
+  const safeCompleted = Math.max(0, Math.trunc(completed));
+  const safeTotal = Math.max(safeCompleted, Math.trunc(total));
+  return `${safeCompleted}/${safeTotal} ${label}`;
+}
+
+export function formatWorkflowChecksumPrefix(checksum: string, length = 12): string {
+  const trimmed = checksum.trim();
+  if (!trimmed) return "unknown";
+  return trimmed.slice(0, Math.max(4, length));
+}
+
+export function formatWorkflowArtifactLabel(input: { kind: string; version: number; checksum?: string; path?: string }): string {
+  const checksum = input.checksum ? `@${formatWorkflowChecksumPrefix(input.checksum)}` : "";
+  const path = input.path ? ` ${shortenWorkflowPath(input.path)}` : "";
+  return `${input.kind} v${input.version}${checksum}${path}`;
+}
+
+export function shortenWorkflowDisplayPath(filePath: string, maxWidth: number): string {
+  const shortened = shortenWorkflowPath(filePath);
+  if (shortened.length <= maxWidth) return shortened;
+  if (maxWidth <= 1) return "…".slice(0, Math.max(0, maxWidth));
+  const tail = shortened.slice(Math.max(0, shortened.length - maxWidth + 1));
+  return `…${tail}`;
+}
+
+export function formatWorkflowSafeCommandHint(commands: readonly string[]): string {
+  if (!commands.length) return "No follow-up command required.";
+  return `Safe next command: ${commands[0]}`;
 }
 
 export function formatWorkflowStepSummary(steps: WorkflowStepSummary[]): string {

@@ -2,7 +2,7 @@ import type { PhaseAdapter, AdapterPhaseResult } from "./types.ts";
 import { buildBrainstormingAdapterContext } from "./context.ts";
 import { buildBrainstormingPrompt } from "./prompts/brainstorming.ts";
 import { createDesignDraftOutputSchema, type DesignDraftOutput } from "./schemas.ts";
-import { agentFailureResult, resolveRunAgent, type AgentBackedAdapterOptions } from "./agent-backed.ts";
+import { agentFailureResult, resolveRunAgent, workflowAgentProgressCallback, type AgentBackedAdapterOptions } from "./agent-backed.ts";
 import type { WorkflowState } from "../types.ts";
 
 export type BrainstormingAdapterOutput = AdapterPhaseResult;
@@ -33,6 +33,7 @@ export function createBrainstormingAdapter(options: AgentBackedAdapterOptions): 
           state,
         },
         outputSchema: createDesignDraftOutputSchema(state.topic),
+        onProgress: workflowAgentProgressCallback(options, state),
       });
       if (result.status !== "succeeded" || !result.output) return agentFailureResult(result);
       return {
