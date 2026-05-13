@@ -1,5 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { buildInteractiveGateModel } from "../../extensions/clarification-orchestrator/tui/interactive-gates.ts";
+import { renderInteractiveGateControl } from "../../extensions/clarification-orchestrator/tui/decision-controls.ts";
 import { renderExpandedWorkflowSnapshot } from "../../extensions/clarification-orchestrator/tui/workflow-widget.ts";
 import type { WorkflowLiveSnapshot } from "../../extensions/clarification-orchestrator/workflow/progress-types.ts";
 
@@ -23,7 +25,7 @@ function planReviewSnapshot(): WorkflowLiveSnapshot {
       { reviewRunId: "plan-review-1", target: "plan", reviewerId: "dependency-order-reviewer", status: "passed" },
     ],
     tasks: [],
-    gates: [{ id: "plan-approval", gate: "plan-approval", title: "Plan approval required", status: "awaiting-user", artifacts: [], safeCommands: ["/brainstorm-pro --resume live-progress"] }],
+    gates: [{ id: "plan-approval", gate: "plan-approval", title: "Plan approval required", status: "awaiting-user", artifacts: [], safeCommands: ["/brainstorm-pro --resume live-progress"], opaqueContext: { binding: { gateId: "plan-approval", gateNonce: "nonce", phase: "awaiting-plan-approval", artifactRefs: [] } } }],
     diagnostics: [],
   };
 }
@@ -35,4 +37,12 @@ test("plan review cards never expose mode, subset, partial accept, or per-review
   assert.match(output, /task-coverage-reviewer/);
   assert.match(output, /dependency-order-reviewer/);
   assert.match(output, /Readiness is not approval/);
+});
+
+test("interactive plan approval model preserves automatic plan review boundary", () => {
+  const model = buildInteractiveGateModel(planReviewSnapshot());
+  const output = renderInteractiveGateControl(model).join("\n");
+  assert.equal(model.kind, "plan-approval");
+  assert.doesNotMatch(output, /skip|minimal|full mode|choose reviewer|accept incomplete/iu);
+  assert.match(output, /Plan review mode\/subset\/partial accept\/retry controls are not available/);
 });

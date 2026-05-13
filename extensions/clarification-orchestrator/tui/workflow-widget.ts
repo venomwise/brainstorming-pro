@@ -1,4 +1,7 @@
 import type { WorkflowLiveSnapshot } from "../workflow/progress-types.ts";
+import type { WorkflowDecisionBinding, WorkflowDecisionResult } from "../workflow/decision-facade.ts";
+import type { RuntimeUserDecision } from "../workflow/runtime.ts";
+import { buildInteractiveGateModel, renderDecisionResult, renderInteractiveGateControl, type InteractiveGateModel } from "./decision-controls.ts";
 import { formatWorkflowArtifactLabel, formatWorkflowDuration, formatWorkflowSafeCommandHint, formatWorkflowStatusGlyph } from "./formatters.ts";
 import { truncateWorkflowToWidth, visibleWorkflowWidth } from "./render-helpers.ts";
 import { renderWorkflowLiveSnapshotFallback } from "./workflow-result.ts";
@@ -10,6 +13,9 @@ export type WorkflowLiveWidgetOptions = {
   initialMode?: WorkflowLiveWidgetMode;
   onClose?: () => void;
   now?: () => number;
+  enableInteractiveDecisions?: boolean;
+  getInteractiveGateModel?: (snapshot: WorkflowLiveSnapshot) => InteractiveGateModel;
+  submitDecision?: (payload: { decision: RuntimeUserDecision; binding: WorkflowDecisionBinding }) => Promise<WorkflowDecisionResult>;
 };
 
 export type WorkflowWidgetInputResult = "handled" | "ignored" | "closed";
@@ -22,12 +28,20 @@ export class WorkflowLiveWidget {
   private invalidated = true;
   private closed = false;
   private scrollOffset = 0;
+  private readonly enableInteractiveDecisions: boolean;
+  private readonly getInteractiveGateModel: (snapshot: WorkflowLiveSnapshot) => InteractiveGateModel;
+  private readonly submitDecision?: (payload: { decision: RuntimeUserDecision; binding: WorkflowDecisionBinding }) => Promise<WorkflowDecisionResult>;
+  private interactiveFocusIndex = 0;
+  private lastDecisionResult?: WorkflowDecisionResult;
 
   constructor(options: WorkflowLiveWidgetOptions) {
     this.getSnapshot = options.getSnapshot;
     this.mode = options.initialMode ?? "compact";
     this.onClose = options.onClose;
     this.now = options.now ?? (() => Date.now());
+    this.enableInteractiveDecisions = options.enableInteractiveDecisions ?? false;
+    this.getInteractiveGateModel = options.getInteractiveGateModel ?? buildInteractiveGateModel;
+    this.submitDecision = options.submitDecision;
   }
 
   render(width: number): string[] {
@@ -38,6 +52,11 @@ export class WorkflowLiveWidget {
     try {
       const snapshot = this.getSnapshot();
       const lines = this.mode === "compact" ? renderCompactWorkflowSnapshot(snapshot, safeWidth, this.now()) : renderExpandedWorkflowSnapshot(snapshot, safeWidth, this.scrollOffset, this.now());
+      if (this.enableInteractiveDecisions) {
+        const model = this.getInteractiveGateModel(snapshot);
+        lines.push("", "Interactive decision controls:", ...renderInteractiveGateControl(model));
+        if (this.lastDecisionResult) lines.push(...renderDecisionResult(this.lastDecisionResult));
+      }
       this.invalidated = false;
       return lines.map((line) => fitLine(line, safeWidth));
     } catch (error) {
@@ -53,8 +72,22 @@ export class WorkflowLiveWidget {
       this.onClose?.();
       return "closed";
     }
-    if (input === "\t" || input === "e" || input === "E" || input === " ") {
+    if (this.enableInteractiveDecisions && (input === "\t" || input === "\u001b[Z")) {
+      this.interactiveFocusIndex = Math.max(0, this.interactiveFocusIndex + (input === "\u001b[Z" ? -1 : 1));
+      this.invalidate();
+      return "handled";
+    }
+    if (input === "e" || input === "E" || input === " ") {
       this.mode = this.mode === "compact" ? "expanded" : "compact";
+      this.invalidate();
+      return "handled";
+    }
+    if (this.enableInteractiveDecisions && (input === "\r" || input === "\n")) {
+      this.invalidate();
+      return this.submitDecision ? "handled" : "ignored";
+    }
+    if (this.enableInteractiveDecisions && (input === "\u001b[C" || input === "\u001b[D" || input === "\u001b[A" || input === "\u001b[B")) {
+      this.interactiveFocusIndex = Math.max(0, this.interactiveFocusIndex + (input === "\u001b[C" || input === "\u001b[B" ? 1 : -1));
       this.invalidate();
       return "handled";
     }

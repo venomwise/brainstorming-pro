@@ -7,9 +7,10 @@ import { appendWorkflowEvent } from "./events.ts";
 import { transition, type TransitionContext } from "./state-machine.ts";
 import { defaultWorkflowAdapters } from "./adapters/registry.ts";
 import { isAdapterPhaseResult, type AdapterPhaseResult } from "./adapters/types.ts";
-import type { ApprovalRef, ReviewDecisionRef, ReviewMode, ReviewPhaseStatus, UserDecisionRequest, VersionedArtifactRef, WorkflowErrorSnapshot, WorkflowPhase, WorkflowState } from "./types.ts";
+import type { ApprovalRef, PendingGateBinding, ReviewDecisionRef, ReviewMode, ReviewPhaseStatus, UserDecisionRequest, VersionedArtifactRef, WorkflowErrorSnapshot, WorkflowPhase, WorkflowState } from "./types.ts";
 import type { DesignReviewPanelResult } from "./adapters/design-review/types.ts";
 import type { DesignRevisionRecord } from "./adapters/design-revision/types.ts";
+import type { WorkflowDecisionSource } from "./decision-facade.ts";
 
 export type WorkflowBootstrapInput = {
   cwd: string;
@@ -61,7 +62,10 @@ export type ResumeWorkflowInput = {
 
 export type RuntimeUserDecision =
   | { type: "review-mode"; mode: ReviewMode; user: string }
-  | { type: "approval"; action: "approve" | "revise" | "status" | "exit"; user: string };
+  | { type: "approval"; action: "approve" | "revise" | "status" | "exit"; user: string }
+  | { type: "retry-design-reviewers"; user: string; reviewRunId?: string; reviewerRoles: string[] }
+  | { type: "accept-incomplete-design-review"; user: string; confirmed: boolean; reviewRunId?: string; coverageChecksum?: string }
+  | { type: "authorize-design-revision"; user: string; confirmed: boolean; reviewRunId?: string };
 
 // Optional tool-facing input intentionally mirrors the public command boundary:
 // start, augment, resume, or status only. Tool integrations may carry a
@@ -184,7 +188,7 @@ export class WorkflowRuntimeOrchestrator {
     let state = await loadLatestWorkflowState(this.cwd, selected);
     if (state.phase === "done") return state;
     if (state.phase === "blocked" || state.phase === "failed") return state;
-    if (decision) state = await saveWorkflowState(this.cwd, await this.applyDecision(state, decision));
+    if (decision) state = await saveWorkflowState(this.cwd, applyRuntimeUserDecision(state, decision));
     if (isDecisionPhase(state.phase)) return saveWorkflowState(this.cwd, withPendingDecision(state));
     return this.runActivePhase(state);
   }
@@ -259,31 +263,6 @@ export class WorkflowRuntimeOrchestrator {
     };
   }
 
-  private async applyDecision(state: WorkflowState, decision: RuntimeUserDecision): Promise<WorkflowState> {
-    if (decision.type === "review-mode") {
-      if (state.phase !== "awaiting-design-review-decision") return state;
-      const target = reviewTargetForPhase(state.phase);
-      const reviewDecision: ReviewDecisionRef = { id: `${target}-${Date.now()}`, target, mode: decision.mode, artifacts: artifactsForDecision(state), selectedBy: decision.user, selectedAt: new Date().toISOString(), path: `.workflow/decisions/${target}.json` };
-      const to = decision.mode === "skip" ? "awaiting-design-approval" : "design-review";
-      return { ...state, phase: transition(state.phase, to, { reviewMode: decision.mode } satisfies TransitionContext), reviewDecisions: { ...state.reviewDecisions, [target]: reviewDecision }, reviewStatus: decision.mode === "skip" ? { ...state.reviewStatus, [target]: { target, mode: "skip", status: "skipped", artifacts: artifactsForDecision(state), reason: "user-selected-skip", completedAt: new Date().toISOString() } } : state.reviewStatus, pendingDecision: undefined, updatedAt: new Date().toISOString() };
-    }
-
-    if (decision.type === "approval" && decision.action === "approve") {
-      if (state.phase !== "awaiting-design-approval" && state.phase !== "awaiting-plan-approval") return state;
-      const gate = state.phase === "awaiting-design-approval" ? "design" : "plan";
-      if (gate === "plan") assertPlanApprovalMatchesReadyReview(state);
-      const approval: ApprovalRef = { gate, artifacts: artifactsForDecision(state), approvedBy: decision.user, approvedAt: new Date().toISOString(), path: `.workflow/approvals/${gate}-approval.json` };
-      const to = gate === "design" ? "planning" : "executing";
-      return { ...state, phase: transition(state.phase, to), gates: { ...state.gates, [gate]: approval }, pendingDecision: undefined, updatedAt: new Date().toISOString() };
-    }
-
-    if (decision.type === "approval" && decision.action === "revise") {
-      if (state.phase === "awaiting-design-approval") return { ...state, phase: "designing", pendingDecision: undefined, updatedAt: new Date().toISOString() };
-      if (state.phase === "awaiting-plan-approval") return { ...state, phase: "planning", pendingDecision: undefined, updatedAt: new Date().toISOString() };
-    }
-    return state;
-  }
-
   private async singlePendingTopic(): Promise<string | undefined> {
     const topics = await discoverWorkflowTopics(this.cwd);
     return topics.length === 1 ? topics[0] : undefined;
@@ -339,6 +318,46 @@ export async function discoverWorkflowTopics(cwd: string): Promise<string[]> {
     if (typeof error === "object" && error && "code" in error && error.code === "ENOENT") return [];
     throw error;
   }
+}
+
+export type ApplyRuntimeUserDecisionOptions = {
+  idempotencyKey?: string;
+  decisionSource?: WorkflowDecisionSource;
+};
+
+export function applyRuntimeUserDecision(state: WorkflowState, decision: RuntimeUserDecision, options: ApplyRuntimeUserDecisionOptions = {}): WorkflowState {
+  if (decision.type === "review-mode") {
+    if (state.phase !== "awaiting-design-review-decision") return state;
+    const target = reviewTargetForPhase(state.phase);
+    const reviewDecision: ReviewDecisionRef = {
+      id: `${target}-${Date.now()}`,
+      target,
+      mode: decision.mode,
+      artifacts: artifactsForDecision(state),
+      selectedBy: decision.user,
+      selectedAt: new Date().toISOString(),
+      path: `.workflow/decisions/${target}.json`,
+      idempotencyKey: options.idempotencyKey,
+      decisionSource: options.decisionSource,
+    };
+    const to = decision.mode === "skip" ? "awaiting-design-approval" : "design-review";
+    return { ...state, phase: transition(state.phase, to, { reviewMode: decision.mode } satisfies TransitionContext), reviewDecisions: { ...state.reviewDecisions, [target]: reviewDecision }, reviewStatus: decision.mode === "skip" ? { ...state.reviewStatus, [target]: { target, mode: "skip", status: "skipped", artifacts: artifactsForDecision(state), reason: "user-selected-skip", completedAt: new Date().toISOString() } } : state.reviewStatus, pendingDecision: undefined, updatedAt: new Date().toISOString() };
+  }
+
+  if (decision.type === "approval" && decision.action === "approve") {
+    if (state.phase !== "awaiting-design-approval" && state.phase !== "awaiting-plan-approval") return state;
+    const gate = state.phase === "awaiting-design-approval" ? "design" : "plan";
+    if (gate === "plan") assertPlanApprovalMatchesReadyReview(state);
+    const approval: ApprovalRef = { gate, artifacts: artifactsForDecision(state), approvedBy: decision.user, approvedAt: new Date().toISOString(), path: `.workflow/approvals/${gate}-approval.json`, idempotencyKey: options.idempotencyKey, decisionSource: options.decisionSource };
+    const to = gate === "design" ? "planning" : "executing";
+    return { ...state, phase: transition(state.phase, to), gates: { ...state.gates, [gate]: approval }, pendingDecision: undefined, updatedAt: new Date().toISOString() };
+  }
+
+  if (decision.type === "approval" && decision.action === "revise") {
+    if (state.phase === "awaiting-design-approval") return { ...state, phase: "designing", pendingDecision: undefined, updatedAt: new Date().toISOString() };
+    if (state.phase === "awaiting-plan-approval") return { ...state, phase: "planning", pendingDecision: undefined, updatedAt: new Date().toISOString() };
+  }
+  return state;
 }
 
 export function renderWorkflowStatus(state: WorkflowState): WorkflowRuntimeStatus {
@@ -397,10 +416,53 @@ export function applyPostRevisionReviewResultToState(state: WorkflowState, resul
 }
 
 function withPendingDecision(state: WorkflowState): WorkflowState {
-  if (state.phase === "awaiting-design-review-decision") return { ...state, pendingDecision: { type: "review-decision", target: "design", artifacts: artifactsForDecision(state), choices: ["skip", "minimal", "full", "revise", "exit"] } };
-  if (state.phase === "awaiting-design-approval") return { ...state, pendingDecision: { type: "approval", gate: "design", artifacts: artifactsForDecision(state), choices: ["approve", "revise", "status", "exit"] } };
-  if (state.phase === "awaiting-plan-approval") return { ...state, pendingDecision: { type: "approval", gate: "plan", artifacts: artifactsForDecision(state), choices: ["approve", "revise", "status", "exit"] } };
+  if (state.phase === "awaiting-design-review-decision") {
+    const artifacts = artifactsForDecision(state);
+    const pendingDecision: UserDecisionRequest = { type: "review-decision", target: "design", artifacts, choices: ["skip", "minimal", "full", "revise", "exit"] };
+    return { ...state, pendingDecision: withGateBinding(state, pendingDecision, artifacts) };
+  }
+  if (state.phase === "awaiting-design-approval") {
+    const artifacts = artifactsForDecision(state);
+    const pendingDecision: UserDecisionRequest = { type: "approval", gate: "design", artifacts, choices: ["approve", "revise", "status", "exit"] };
+    return { ...state, pendingDecision: withGateBinding(state, pendingDecision, artifacts) };
+  }
+  if (state.phase === "awaiting-plan-approval") {
+    const artifacts = artifactsForDecision(state);
+    const pendingDecision: UserDecisionRequest = { type: "approval", gate: "plan", artifacts, choices: ["approve", "revise", "status", "exit"] };
+    return { ...state, pendingDecision: withGateBinding(state, pendingDecision, artifacts) };
+  }
   return { ...state, pendingDecision: undefined };
+}
+
+function withGateBinding(state: WorkflowState, pendingDecision: UserDecisionRequest, artifacts: VersionedArtifactRef[]): UserDecisionRequest {
+  const existing = state.pendingDecision?.binding;
+  if (existing && existing.gateId === gateIdForPendingDecision(pendingDecision) && existing.phase === state.phase && artifactRefsMatch(existing.artifactRefs, artifacts)) {
+    return { ...pendingDecision, binding: existing };
+  }
+  return { ...pendingDecision, binding: createPendingGateBinding(state.phase, gateIdForPendingDecision(pendingDecision), artifacts) };
+}
+
+function createPendingGateBinding(phase: WorkflowPhase, gateId: string, artifacts: VersionedArtifactRef[]): PendingGateBinding {
+  return {
+    gateId,
+    gateNonce: randomUUID(),
+    phase,
+    artifactRefs: artifacts,
+    createdAt: new Date().toISOString(),
+  };
+}
+
+function gateIdForPendingDecision(pendingDecision: UserDecisionRequest): string {
+  if (pendingDecision.type === "review-decision") return `${pendingDecision.target}-review-decision`;
+  return `${pendingDecision.gate}-approval`;
+}
+
+function artifactRefsMatch(left: VersionedArtifactRef[], right: VersionedArtifactRef[]): boolean {
+  if (left.length !== right.length) return false;
+  return left.every((artifact, index) => {
+    const candidate = right[index];
+    return artifact.kind === candidate.kind && artifact.version === candidate.version && artifact.path === candidate.path && artifact.checksum === candidate.checksum;
+  });
 }
 
 function artifactsForDecision(state: WorkflowState): VersionedArtifactRef[] {

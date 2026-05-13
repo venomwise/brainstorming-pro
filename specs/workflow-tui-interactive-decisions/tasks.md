@@ -1,0 +1,250 @@
+# Implementation Plan: Workflow TUI Interactive Decisions
+
+## Overview
+
+This implementation plan is driven by the requirements in [requirements.md](requirements.md).
+
+The work is organized into nine phases. The first phases add runtime-owned decision binding, gate nonce, idempotency, and the `submitWorkflowDecision()` facade because TUI controls must not mutate workflow state directly. Middle phases add interactive gate view-models, decision submission plumbing, and specific controls for design review, design approval/recovery/revision, and plan approval. Final phases integrate the controls with the existing Spec 8 widget/session, add rejection/fallback handling, enforce security boundaries, and update documentation. All implementation uses TypeScript ES modules under `extensions/clarification-orchestrator/`, keeps `/brainstorm-pro --resume` as fallback, and preserves runtime-first workflow authority.
+
+## Tasks
+
+- [✅] 1. Phase 1: Add runtime decision binding, gate nonce, and idempotency foundations
+  - [✅] 1.1 Extend workflow pending decision and status types with gate binding
+    - Modify `extensions/clarification-orchestrator/workflow/types.ts` to add `PendingGateBinding` and optional `binding` on `UserDecisionRequest` variants
+    - Include `gateId`, `gateNonce`, `phase`, `artifactRefs`, and `createdAt` in the binding type
+    - Ensure existing `pendingDecision` consumers can handle bindings without treating them as authoritative client input
+    - _Requirements: 2.1, 2.2, 4.3_
+  - [✅] 1.2 Generate stable runtime-owned gate bindings for pending decisions
+    - Modify `withPendingDecision()` in `extensions/clarification-orchestrator/workflow/runtime.ts` to attach a binding when entering `awaiting-design-review-decision`, `awaiting-design-approval`, or `awaiting-plan-approval`
+    - Preserve an existing binding while the workflow remains at the same pending gate and artifact binding has not changed
+    - Regenerate `gateNonce` when phase, gate type, or bound artifacts change
+    - _Requirements: 2.1, 2.3, 2.4, 2.6_
+  - [✅] 1.3 Add decision submission and idempotency types
+    - Add `SubmitWorkflowDecisionInput`, `WorkflowDecisionBinding`, `WorkflowDecisionResult`, `WorkflowDecisionRejectionReason`, and `WorkflowDecisionIdempotency` types in a new `extensions/clarification-orchestrator/workflow/decision-facade.ts`
+    - Represent accepted and rejected results as discriminated unions with typed rejection reasons
+    - Include source values `cli-resume` and `tui`
+    - _Requirements: 1.1, 1.5, 3.1, 3.2_
+  - [✅] 1.4 Add idempotency persistence fields to durable decision records
+    - Extend relevant runtime-created `ReviewDecisionRef` and `ApprovalRef` types in `workflow/types.ts` with optional `idempotencyKey` and `decisionSource`
+    - Ensure existing tests and fixtures remain valid with optional fields
+    - Persist idempotency metadata when decisions are accepted through the new facade
+    - _Requirements: 3.2, 3.3, 3.4_
+  - [ ]* 1.5 Write unit tests for gate binding and idempotency foundations
+    - Create or extend `tests/unit/workflow/decision-facade.test.ts`
+    - Test gate binding generation, binding preservation while unchanged, nonce regeneration on artifact/phase changes, and optional idempotency metadata shape
+    - _Requirements: 2.1, 2.4, 2.6, 3.1, 3.2_
+
+- [✅] 2. Phase 2: Implement the runtime decision facade
+  - [✅] 2.1 Implement `submitWorkflowDecision()`
+    - Create `extensions/clarification-orchestrator/workflow/decision-facade.ts` with `submitWorkflowDecision(input, runtime)` or an equivalent package-internal helper integrated with `WorkflowRuntimeOrchestrator`
+    - Reload authoritative workflow state before validating submitted decisions
+    - Return typed accepted/rejected results without throwing for expected stale/invalid decision cases
+    - _Requirements: 1.1, 1.2, 1.3, 1.5_
+  - [✅] 2.2 Factor existing runtime decision application into reusable validation/persistence paths
+    - Refactor `WorkflowRuntimeOrchestrator.applyDecision()` in `workflow/runtime.ts` so CLI resume and `submitWorkflowDecision()` reuse the same runtime-owned decision logic
+    - Preserve current behavior for existing `RuntimeUserDecision` values while adding binding-aware validation for facade submissions
+    - Ensure runtime remains the only code path that writes decision, approval, event, review/recovery, and state changes
+    - _Requirements: 1.2, 1.4, 12.2_
+  - [✅] 2.3 Validate submitted gate binding and artifact checksums
+    - In the decision facade, compare submitted `gateId`, `gateNonce`, phase, artifact refs, paths, versions, and checksums against current `pendingDecision.binding`
+    - Reject mismatches with `stale-gate`, `artifact-mismatch`, or `checksum-mismatch` as appropriate
+    - Treat submitted binding as untrusted hints and never as authoritative state
+    - _Requirements: 2.2, 2.3, 2.4, 2.5_
+  - [✅] 2.4 Implement idempotency handling
+    - Detect same-key repeats for already accepted gate decisions and return an idempotent accepted result when the durable accepted record matches
+    - Reject different-key submissions for consumed gates as `duplicate-decision` or `stale-gate`
+    - Include status refresh data in rejection results when available
+    - _Requirements: 3.2, 3.3, 3.4, 11.1, 11.4_
+  - [✅] 2.5 Reject unsupported or unsafe decisions fail-closed
+    - Reject decisions not allowed by the current phase/pending gate
+    - Reject non-recovery decisions in `blocked` or `failed` phases
+    - Reject any plan review mode/subset decision payload if introduced by crafted input
+    - _Requirements: 1.6, 4.5, 9.7, 12.3, 12.4_
+  - [ ]* 2.6 Write runtime decision facade unit tests
+    - Extend `tests/unit/workflow/decision-facade.test.ts`
+    - Test valid design review mode, phase mismatch, stale nonce, checksum mismatch, consumed gate duplicate, same-key idempotent result, plan approval stale artifact rejection, and unsupported plan review mode rejection
+    - _Requirements: 1.1, 1.3, 1.5, 2.3, 2.4, 2.5, 3.3, 3.4, 9.5_
+
+- [✅] 3. Phase 3: Add interactive gate models and decision submission plumbing
+  - [✅] 3.1 Create interactive gate model types
+    - Create `extensions/clarification-orchestrator/tui/interactive-gates.ts`
+    - Define `InteractiveGateModel` variants for design review mode, design approval, design review recovery, accept incomplete, design revision authorization, plan approval, and non-interactive/no-gate states
+    - Include artifact refs/checksums, gate binding, available actions, warnings, and CLI fallback text in applicable models
+    - _Requirements: 4.1, 4.3, 4.5_
+  - [✅] 3.2 Build gate models from `WorkflowLiveSnapshot`
+    - Implement `buildInteractiveGateModel(snapshot)` in `tui/interactive-gates.ts`
+    - Disable executable controls when `snapshot.stale` is true, when no gate exists, or when gate context lacks binding data
+    - Map existing `GateCardSnapshot.opaqueContext` or pending decision context into model binding without reading workflow files directly
+    - _Requirements: 4.1, 4.2, 4.3, 11.1_
+  - [✅] 3.3 Add decision payload builders
+    - Implement helpers that convert confirmed gate model state into `RuntimeUserDecision` plus `WorkflowDecisionBinding`
+    - Include exact design, requirements, tasks, review run, readiness, coverage, and triage refs when the model provides them
+    - Keep all payload builders pure and side-effect free
+    - _Requirements: 2.2, 5.6, 6.2, 6.5, 7.4, 8.4, 9.4_
+  - [✅] 3.4 Create decision submission controller
+    - Create `extensions/clarification-orchestrator/tui/decision-submission.ts`
+    - Implement a controller that attaches idempotency keys, calls `submitWorkflowDecision()`, tracks submitting/accepted/rejected/transport-failed state, and exposes results for rendering
+    - Reuse the same idempotency key when retrying after uncertain transport failure
+    - _Requirements: 3.1, 3.5, 3.6, 11.1, 11.5_
+  - [ ]* 3.5 Write unit tests for gate model and submission plumbing
+    - Create `tests/unit/tui/workflow-tui-interactive-gates.test.ts` and `tests/unit/tui/workflow-tui-decision-submission.test.ts`
+    - Test model creation, stale/no-gate disablement, CLI fallback hints, payload binding, idempotency key attachment, in-flight submit disablement, and transport-failure retry key reuse
+    - _Requirements: 3.1, 3.5, 3.6, 4.1, 4.2, 4.3, 4.5, 11.5_
+
+- [✅] 4. Phase 4: Implement design review mode and reviewer subset controls
+  - [✅] 4.1 Add design review mode rendering and state handling
+    - Create `extensions/clarification-orchestrator/tui/decision-controls.ts` or equivalent control helpers used by `workflow-widget.ts`
+    - Render `skip`, `minimal`, `full`, `revise`, and `exit` choices with current design artifact ref/checksum
+    - Include explanatory copy that `skip` is an explicit recorded decision and `full` runs the full design reviewer panel
+    - _Requirements: 5.1, 5.2_
+  - [✅] 4.2 Add explicit skip confirmation
+    - Implement confirmation state for `skip` review mode with default focus on cancel/no
+    - Ensure no decision payload is built until explicit confirmation is true
+    - _Requirements: 5.2, 10.3, 10.6_
+  - [✅] 4.3 Add full reviewer subset selector
+    - Render all five full design reviewer roles selected by default
+    - Support checkbox toggling and validation for at least one selected full reviewer
+    - Reject duplicate, unknown, minimal, and plan reviewer roles before submission
+    - _Requirements: 5.3, 5.4, 5.5, 10.2_
+  - [✅] 4.4 Wire design review mode submissions through the decision submission controller
+    - Submit `select-design-review-mode` decisions with selected reviewer roles for `full`
+    - Include design ref/checksum, gate binding, idempotency key, and source `tui`
+    - Render accepted/rejected state without mutating workflow files directly
+    - _Requirements: 5.6, 5.7, 12.2_
+  - [ ]* 4.5 Write unit tests for design review controls
+    - Extend `tests/unit/tui/workflow-tui-interactive-gates.test.ts` or create `tests/unit/tui/workflow-tui-design-review-controls.test.ts`
+    - Test mode rendering, skip confirmation, full default selection, invalid reviewer selections, payload content, and stale submission disablement
+    - _Requirements: 5.1, 5.2, 5.3, 5.4, 5.5, 5.6, 5.7_
+
+- [✅] 5. Phase 5: Implement design review recovery and design approval controls
+  - [✅] 5.1 Add failed reviewer retry control
+    - Render review run id, selected/succeeded/failed reviewers, diagnostics summary, and retry action from runtime-exposed recovery model data
+    - Submit only the failed reviewer roles exposed by runtime status
+    - _Requirements: 6.1, 6.2, 4.4_
+  - [✅] 5.2 Add accept-incomplete confirmation dialog
+    - Render a separate accept-incomplete dialog only when runtime exposes the action
+    - Include required warning text that incomplete review is not passed review and does not approve design
+    - Include succeeded reviewers, failed reviewers, blocking finding count, design ref/checksum, and coverage evidence/checksum
+    - _Requirements: 6.3, 6.4, 6.5, 10.6_
+  - [✅] 5.3 Wire accept-incomplete submissions through runtime facade
+    - Submit `accept-incomplete-design-review` with explicit confirmation, review run id, design ref/checksum, coverage evidence/checksum, gate binding, and idempotency key
+    - Render runtime rejection for blocking findings, stale coverage, stale design, or unavailable action
+    - _Requirements: 6.5, 6.6, 6.7, 11.1_
+  - [✅] 5.4 Add design approval control
+    - Render design ref/checksum, review evidence, readiness status, triage summary, skipped-review warning, accepted-incomplete warning, and readiness-is-not-approval warning
+    - Require explicit confirmation before submit with default focus on cancel/no
+    - _Requirements: 7.1, 7.2, 7.3, 10.6_
+  - [✅] 5.5 Wire design approval and revise actions through runtime facade
+    - Submit approve-design with design ref/checksum, review/readiness evidence refs where available, gate binding, idempotency key, and explicit confirmation
+    - Route available revision actions to the design revision authorization model instead of mutating design
+    - _Requirements: 7.4, 7.5, 7.6, 7.7_
+  - [ ]* 5.6 Write unit tests for recovery and approval controls
+    - Create `tests/unit/tui/workflow-tui-design-recovery-controls.test.ts`
+    - Test retry payloads, accept-incomplete warning text, required confirmation, unavailable accept-incomplete hidden state, design approval warning text, approval confirmation, and stale rejection rendering
+    - _Requirements: 6.1, 6.2, 6.3, 6.4, 6.5, 6.6, 7.1, 7.2, 7.3, 7.4_
+
+- [✅] 6. Phase 6: Implement design revision authorization and plan approval controls
+  - [✅] 6.1 Add design revision authorization dialog
+    - Render source design ref/checksum, source review run id, source triage/readiness refs, must-fix/unresolved question summary, post-revision review mode/subset, and single-use warning
+    - State that authorization permits one revision attempt and one post-revision re-review only
+    - State that authorization does not approve the revised design or allow automatic multi-round revision
+    - _Requirements: 8.1, 8.2, 8.3_
+  - [✅] 6.2 Wire design revision authorization submissions through runtime facade
+    - Submit authorization with explicit confirmation, source refs/checksums, source review run id, triage/readiness refs, review-after-revision settings, gate binding, and idempotency key
+    - Render runtime needs-user-input or stale-source rejection without launching reviser from TUI code
+    - _Requirements: 8.4, 8.5, 8.6_
+  - [✅] 6.3 Add plan approval control
+    - Render approved design, requirements, tasks, plan review run id, readiness status, automatic revision summary, and plan-review-ready-is-not-approval warning
+    - Require explicit confirmation before submit with default focus on cancel/no
+    - _Requirements: 9.1, 9.2, 9.3, 10.6_
+  - [✅] 6.4 Wire plan approval submission through runtime facade
+    - Submit approve-plan with approved design ref, requirements ref, tasks ref, plan review run id, readiness checksum/evidence, gate binding, idempotency key, and explicit confirmation
+    - Let runtime reject stale requirements/tasks or readiness mismatch
+    - _Requirements: 9.4, 9.5, 9.6_
+  - [✅] 6.5 Enforce no plan review controls
+    - Ensure plan approval models and renderers never include plan review skip/minimal/full mode, reviewer subset, partial accept, or per-reviewer retry controls
+    - Add defensive runtime rejection for crafted plan review mode/subset decision payloads
+    - _Requirements: 9.7, 12.4_
+  - [ ]* 6.6 Write unit tests for revision and plan approval controls
+    - Create `tests/unit/tui/workflow-tui-revision-plan-controls.test.ts`
+    - Test revision authorization warnings, explicit confirmation, source binding payloads, needs-user-input display, plan approval warning text, stale plan binding rejection display, and absence of plan review mode/subset controls
+    - _Requirements: 8.1, 8.2, 8.3, 8.4, 8.5, 9.1, 9.2, 9.3, 9.7_
+
+- [✅] 7. Phase 7: Integrate interactive controls with the workflow widget and keyboard handling
+  - [✅] 7.1 Extend `WorkflowLiveWidget` with optional interactive mode
+    - Modify `extensions/clarification-orchestrator/tui/workflow-widget.ts` to accept optional interactive options such as `enableInteractiveDecisions`, `submitDecision`, and `getInteractiveGateModel`
+    - Keep read-only Spec 8 behavior unchanged when interactive options are absent or disabled
+    - _Requirements: 4.1, 4.2, 10.8, 12.2_
+  - [✅] 7.2 Implement keyboard navigation for interactive controls
+    - Support `Tab`/`Shift+Tab` focus movement, arrow navigation within option groups, `Space` checkbox toggling, and `Enter` submit after confirmation
+    - Ensure `Esc`, `q`, close, and cancel exit without submitting
+    - Ensure `Ctrl+C` follows cancellation semantics without submitting partial decisions
+    - _Requirements: 10.1, 10.2, 10.3, 10.4, 10.5_
+  - [✅] 7.3 Keep IME and text input scope narrow
+    - Avoid free-form text input in the initial implementation except optional reason fields if already supported by runtime models
+    - Ensure any active text field is the only place where IME text is accepted
+    - _Requirements: 10.7_
+  - [✅] 7.4 Add stale rejection and accepted result rendering
+    - Render typed runtime rejection reasons, current authoritative status where available, and explicit no-decision-recorded text
+    - Render idempotent accepted results distinctly from rejections
+    - Show snapshot refs versus current runtime refs when stale artifact data is available
+    - _Requirements: 11.1, 11.2, 11.3, 11.4, 11.6_
+  - [✅] 7.5 Preserve deterministic fallback
+    - Ensure non-interactive, narrow, unsupported, render-failure, or input-failure contexts render text fallback and `/brainstorm-pro --resume` hints
+    - Ensure UI failures do not mark workflow failed
+    - _Requirements: 10.8, 11.5_
+  - [ ]* 7.6 Write widget interaction and keyboard tests
+    - Create `tests/unit/tui/workflow-tui-keyboard.test.ts` and `tests/unit/tui/workflow-tui-stale-rejection.test.ts`
+    - Test focus movement, option toggling, confirm-before-submit, escape/cancel behavior, Ctrl+C no-submit behavior, stale rejection text, idempotent accepted display, and fallback on render failure
+    - _Requirements: 10.1, 10.2, 10.3, 10.4, 10.5, 10.6, 10.8, 11.1, 11.3, 11.4, 11.5_
+
+- [✅] 8. Checkpoint - Verify runtime-gated interactive decision path
+  - Run `npm run typecheck`
+  - Run `node --test tests/unit/workflow/decision-facade.test.ts tests/unit/tui/workflow-tui-interactive-gates.test.ts tests/unit/tui/workflow-tui-decision-submission.test.ts tests/unit/tui/workflow-tui-design-review-controls.test.ts tests/unit/tui/workflow-tui-design-recovery-controls.test.ts tests/unit/tui/workflow-tui-revision-plan-controls.test.ts tests/unit/tui/workflow-tui-keyboard.test.ts tests/unit/tui/workflow-tui-stale-rejection.test.ts`
+  - Inspect `extensions/clarification-orchestrator/tui/*.ts` and `workflow/decision-facade.ts` to confirm TUI modules call only the runtime decision facade for mutation
+  - Confirm requirements 1.1-1.6, 2.1-2.6, 3.1-3.6, 4.1-4.6, 5.1-5.7, 6.1-6.7, 7.1-7.7, 8.1-8.6, 9.1-9.7, 10.1-10.8, and 11.1-11.6 are covered
+  - Stop only if stale gate validation, idempotency, explicit confirmation, or product boundary checks fail
+
+- [✅] 9. Phase 8: Add integration, security, and documentation coverage
+  - [ ]* 9.1 Add workflow TUI interactive integration tests
+    - Create `tests/integration/workflow-tui-interactive-decisions.test.ts`
+    - Test TUI design review mode selection equals CLI helper durable result, full reviewer subset decision schema, retry failed reviewers path, accept incomplete reaching only design approval, design approval entering planning, plan approval entering executing, stale approval rejection, and transport failure recovery through status refresh
+    - _Requirements: 1.2, 3.6, 5.6, 6.7, 7.6, 9.6, 11.1_
+  - [✅] 9.2 Add security boundary tests for interactive TUI modules
+    - Create `tests/security/workflow-tui-interactive-boundary.test.ts`
+    - Assert TUI interactive modules do not import approval writers, review decision ledger writers, revision ledger writers, artifact commit helpers, state transition helpers, or task checkbox writers
+    - Assert durable mutation occurs only through the runtime decision facade
+    - _Requirements: 12.1, 12.2_
+  - [✅] 9.3 Add crafted payload and product-boundary security tests
+    - Extend `tests/security/workflow-tui-interactive-boundary.test.ts` or add focused tests
+    - Test crafted stale artifact approval rejection, accept-incomplete without explicit confirmation rejection, stale triage revision authorization rejection, plan review mode/subset rejection, and no generic subagent/background/intercom UI exposure
+    - _Requirements: 12.3, 12.4, 12.6_
+  - [✅] 9.4 Add execution and plan review boundary regressions
+    - Extend existing `tests/security/workflow-tui-plan-review-boundary.test.ts` and `tests/security/workflow-tui-execution-boundary.test.ts`
+    - Verify interactive controls do not add plan review mode/subset controls and do not select tasks, write checkboxes, validate evidence, or advance execution state
+    - _Requirements: 9.7, 12.4, 12.5_
+  - [ ]* 9.5 Update reuse inventory if derived helper code is added
+    - If any new code is derived from `nicobailon/pi-subagents`, update `extensions/clarification-orchestrator/vendor/pi-subagents/reuse-inventory.json` and `NOTICE.md`
+    - Ensure attribution headers are present where required
+    - _Requirements: 12.7_
+  - [✅]* 9.6 Update TUI and public documentation
+    - Update `extensions/clarification-orchestrator/tui/README.md` to describe runtime-gated interactive decisions, gate nonce/idempotency, CLI fallback, and non-goals
+    - Update `README.md` only if user-visible TUI behavior changes need documentation
+    - _Requirements: 10.8, 11.6, 12.6_
+  - [✅]* 9.7 Add documentation alignment tests
+    - Update docs tests under `tests/unit/docs/` so docs state TUI decisions are runtime-gated, `/brainstorm-pro --resume` remains fallback, accept incomplete is not approval, and plan review has no user mode/subset controls
+    - _Requirements: 6.4, 9.7, 10.8, 12.4_
+  - [✅]* 9.8 Run final validation
+    - Run `npm run typecheck`
+    - Run `npm test`
+    - Run `npm run validate-package`
+    - Confirm Spec 8.1 changes do not add public command surface, do not bypass runtime gates, and do not weaken pi-subagents reuse/product-boundary policy
+    - _Requirements: 1.1, 2.1, 3.1, 4.1, 5.1, 6.1, 7.1, 8.1, 9.1, 10.1, 11.1, 12.1_
+
+## Notes
+
+- Tasks marked with `*` are optional and can be skipped for an MVP, but explicit confirmation, stale gate validation, idempotency, CLI fallback, and mutation-boundary enforcement are not optional for a safe implementation.
+- Keep TUI interactivity as an input facade. Runtime remains the only authority for decisions, approvals, events, ledgers, artifacts, and state transitions.
+- Preserve existing TypeScript style: ES modules with explicit `.ts` imports, strict typing, two-space indentation, double quotes, and no unnecessary `any`.
+- Preserve the Spec 6 plan review boundary: no plan review mode, subset, partial accept, or per-reviewer retry controls.
+- Preserve the Spec 8 presentation foundation: read-only live progress and fallback rendering must still work when interactive decisions are disabled or unavailable.

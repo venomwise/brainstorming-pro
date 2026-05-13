@@ -448,5 +448,6 @@ function gateCardsFromInput(input: WorkflowSnapshotInput, artifacts: ArtifactSna
     status: "awaiting-user",
     artifacts,
     safeCommands: [`/brainstorm-pro --resume ${input.topic}`],
+    opaqueContext: input.pendingDecision.binding ? { binding: input.pendingDecision.binding } : undefined,
   }];
 }

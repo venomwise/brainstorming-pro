@@ -25,6 +25,14 @@ export type VersionedArtifactRef = {
 
 export type ReviewMode = "skip" | "minimal" | "full";
 
+export type PendingGateBinding = {
+  gateId: string;
+  gateNonce: string;
+  phase: WorkflowPhase;
+  artifactRefs: VersionedArtifactRef[];
+  createdAt: string;
+};
+
 export type PlanReviewReadinessStatus = "ready-for-plan-approval" | "blocked-needs-plan-revision" | "blocked-needs-design-revision" | "failed" | "stale";
 
 export type ReviewTarget = "design" | "plan" | "execution";
@@ -44,6 +52,8 @@ type BaseReviewDecisionRef = {
   selectedBy: string;
   selectedAt: string;
   path: string;
+  idempotencyKey?: string;
+  decisionSource?: "cli-resume" | "tui";
 };
 
 export type FullDesignReviewDecisionRef = BaseReviewDecisionRef & {
@@ -73,6 +83,8 @@ export type ApprovalRef = {
   approvedBy: string;
   approvedAt: string;
   path: string;
+  idempotencyKey?: string;
+  decisionSource?: "cli-resume" | "tui";
 };
 
 export type ReviewPhaseStatus = {
@@ -107,8 +119,8 @@ export type ReviewPhaseStatus = {
 };
 
 export type UserDecisionRequest =
-  | { type: "review-decision"; target: "design" | "plan"; artifacts: VersionedArtifactRef[]; choices: Array<ReviewMode | "revise" | "exit"> }
-  | { type: "approval"; gate: "design" | "plan"; artifacts: VersionedArtifactRef[]; choices: Array<"approve" | "revise" | "status" | "exit"> };
+  | { type: "review-decision"; target: "design" | "plan"; artifacts: VersionedArtifactRef[]; choices: Array<ReviewMode | "revise" | "exit">; binding?: PendingGateBinding }
+  | { type: "approval"; gate: "design" | "plan"; artifacts: VersionedArtifactRef[]; choices: Array<"approve" | "revise" | "status" | "exit">; binding?: PendingGateBinding };
 
 export type WorkflowErrorSnapshot = {
   message: string;
