@@ -65,6 +65,10 @@ test("TUI scaffold docs describe snapshot-first foundation and interactive bound
     "stale evidence is provenance only",
     "Incomplete coverage is not a passed review",
     "Plan review display is automatic and fixed",
+    "execution-view-model.ts",
+    "Controlled execution views are observability-only",
+    "Checkpoint tasks must be rendered as execution validation tasks, not user approval gates",
+    "/brainstorm-pro --status",
   ]) {
     assert.ok(tuiReadme.includes(expected), `TUI README should include ${expected}`);
   }

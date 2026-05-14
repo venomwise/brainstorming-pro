@@ -2,7 +2,9 @@ import type { WorkflowLiveSnapshot } from "../workflow/progress-types.ts";
 import type { WorkflowDecisionBinding, WorkflowDecisionResult } from "../workflow/decision-facade.ts";
 import type { RuntimeUserDecision } from "../workflow/runtime.ts";
 import type { ReviewPanelViewModel } from "./review-panel-view-model.ts";
+import type { ExecutionViewModel } from "./execution-view-model.ts";
 import { renderReviewPanelView } from "./review-panel/index.ts";
+import { renderExecutionView } from "./execution/index.ts";
 import { buildInteractiveGateModel, renderDecisionResult, renderInteractiveGateControl, type InteractiveGateModel } from "./decision-controls.ts";
 import { formatWorkflowArtifactLabel, formatWorkflowDuration, formatWorkflowSafeCommandHint, formatWorkflowStatusGlyph } from "./formatters.ts";
 import { truncateWorkflowToWidth, visibleWorkflowWidth } from "./render-helpers.ts";
@@ -18,6 +20,7 @@ export type WorkflowLiveWidgetOptions = {
   enableInteractiveDecisions?: boolean;
   getInteractiveGateModel?: (snapshot: WorkflowLiveSnapshot) => InteractiveGateModel;
   getReviewPanelViewModel?: (snapshot: WorkflowLiveSnapshot) => ReviewPanelViewModel | undefined;
+  getExecutionViewModel?: (snapshot: WorkflowLiveSnapshot) => ExecutionViewModel | undefined;
   submitDecision?: (payload: { decision: RuntimeUserDecision; binding: WorkflowDecisionBinding }) => Promise<WorkflowDecisionResult>;
 };
 
@@ -35,6 +38,7 @@ export class WorkflowLiveWidget {
   private readonly getInteractiveGateModel: (snapshot: WorkflowLiveSnapshot) => InteractiveGateModel;
   private readonly submitDecision?: (payload: { decision: RuntimeUserDecision; binding: WorkflowDecisionBinding }) => Promise<WorkflowDecisionResult>;
   private readonly getReviewPanelViewModel?: (snapshot: WorkflowLiveSnapshot) => ReviewPanelViewModel | undefined;
+  private readonly getExecutionViewModel?: (snapshot: WorkflowLiveSnapshot) => ExecutionViewModel | undefined;
   private interactiveFocusIndex = 0;
   private lastDecisionResult?: WorkflowDecisionResult;
 
@@ -47,6 +51,7 @@ export class WorkflowLiveWidget {
     this.getInteractiveGateModel = options.getInteractiveGateModel ?? buildInteractiveGateModel;
     this.submitDecision = options.submitDecision;
     this.getReviewPanelViewModel = options.getReviewPanelViewModel;
+    this.getExecutionViewModel = options.getExecutionViewModel;
   }
 
   render(width: number): string[] {
@@ -64,6 +69,15 @@ export class WorkflowLiveWidget {
         } catch (error) {
           const message = error instanceof Error ? error.message : String(error);
           section(lines, "Review panel", [`Review panel rendering unavailable: ${message}`, "Use /brainstorm-pro --status or /brainstorm-pro --resume."]);
+        }
+      }
+      if (this.mode === "expanded" && this.getExecutionViewModel) {
+        try {
+          const execution = this.getExecutionViewModel(snapshot);
+          if (execution) section(lines, "Execution", renderExecutionView(execution, safeWidth));
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error);
+          section(lines, "Execution", [`Execution details unavailable: ${message}`, "Use /brainstorm-pro --status or /brainstorm-pro --resume."]);
         }
       }
       if (this.enableInteractiveDecisions) {

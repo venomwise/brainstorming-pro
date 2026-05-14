@@ -12,6 +12,7 @@ import type { DesignReviewPanelResult } from "./adapters/design-review/types.ts"
 import type { DesignRevisionRecord } from "./adapters/design-revision/types.ts";
 import type { WorkflowDecisionSource } from "./decision-facade.ts";
 import { artifactDisplayRefFromVersionedArtifact, createEmptyWorkflowReviewPanelSummary, type WorkflowReviewPanelSummary } from "./review-panel-summary.ts";
+import { createEmptyWorkflowExecutionSummary, type WorkflowExecutionSummary } from "./execution-summary.ts";
 
 export type WorkflowBootstrapInput = {
   cwd: string;
@@ -54,6 +55,7 @@ export type WorkflowRuntimeStatus = {
   lastError?: WorkflowErrorSnapshot;
   revisionHandoff?: ReviewPhaseStatus["revisionHandoff"];
   reviewPanelSummary?: WorkflowReviewPanelSummary;
+  executionSummary?: WorkflowExecutionSummary;
 };
 
 export type ResumeWorkflowInput = {
@@ -375,7 +377,19 @@ export function renderWorkflowStatus(state: WorkflowState): WorkflowRuntimeStatu
     lastError: state.lastError,
     revisionHandoff: state.reviewStatus.design?.revisionHandoff,
     reviewPanelSummary: buildWorkflowReviewPanelSummary(state),
+    executionSummary: buildWorkflowExecutionSummary(state),
   };
+}
+
+function buildWorkflowExecutionSummary(state: WorkflowState): WorkflowExecutionSummary {
+  const isExecutionState = state.phase === "executing" || state.phase === "done" || state.phase === "blocked" || state.phase === "failed";
+  return createEmptyWorkflowExecutionSummary({
+    topic: state.topic,
+    runId: state.runId,
+    generatedAt: new Date().toISOString(),
+    status: state.phase === "done" ? "completed" : state.phase === "blocked" ? "blocked" : state.phase === "failed" ? "failed" : state.phase === "executing" ? "running" : "not-started",
+    diagnostics: isExecutionState ? [] : [{ level: "info", code: "execution-summary-empty", message: "No controlled execution detail is available for the current workflow state." }],
+  });
 }
 
 function buildWorkflowReviewPanelSummary(state: WorkflowState): WorkflowReviewPanelSummary {

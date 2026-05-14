@@ -52,6 +52,32 @@ test("workflow widget renders optional review panel in expanded mode and fails s
   assert.match(failing.render(100).join("\n"), /Review panel rendering unavailable: boom/);
 });
 
+test("workflow widget renders optional execution provider in expanded mode and fails soft", () => {
+  const widget = new WorkflowLiveWidget({
+    getSnapshot: () => snapshot(),
+    initialMode: "expanded",
+    getExecutionViewModel: (live) => ({
+      topic: live.topic,
+      runId: live.runId,
+      phase: live.phase,
+      generatedAt: live.updatedAt,
+      status: "running",
+      summary: { totalTasks: 1, completedTasks: 0, runningTasks: 1, pendingTasks: 0, skippedTasks: 0, blockedTasks: 0, failedTasks: 0 },
+      taskTimeline: [{ taskId: "1.1", title: "Execute", kind: "task", status: "running", requirementIds: [], evidence: [], diagnostics: [], source: "summary" }],
+      blockers: [],
+      mutationWarnings: [],
+      diagnostics: [],
+      safeCommands: ["/brainstorm-pro --status"],
+    }),
+  });
+  assert.match(widget.render(100).join("\n"), /Execution:/);
+  assert.match(widget.render(100).join("\n"), /Task timeline:/);
+  const compact = new WorkflowLiveWidget({ getSnapshot: () => snapshot(), initialMode: "compact", getExecutionViewModel: () => { throw new Error("should not run compact"); } });
+  assert.doesNotMatch(compact.render(100).join("\n"), /Execution details unavailable/);
+  const failing = new WorkflowLiveWidget({ getSnapshot: () => snapshot(), initialMode: "expanded", getExecutionViewModel: () => { throw new Error("boom"); } });
+  assert.match(failing.render(100).join("\n"), /Execution details unavailable: boom/);
+});
+
 test("expanded renderer includes timeline, agents, reviewers, tasks, artifacts, diagnostics, and gates", () => {
   const lines = renderExpandedWorkflowSnapshot(snapshot({
     phase: "awaiting-design-approval",

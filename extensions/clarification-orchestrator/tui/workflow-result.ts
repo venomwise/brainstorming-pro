@@ -1,4 +1,6 @@
 import type { WorkflowLiveSnapshot } from "../workflow/progress-types.ts";
+import type { ExecutionViewModel } from "./execution-view-model.ts";
+import { renderExecutionFallback } from "./execution-fallback.ts";
 import {
   formatWorkflowArtifactLabel,
   formatWorkflowSafeCommandHint,
@@ -10,6 +12,7 @@ import { truncateWorkflowToWidth } from "./render-helpers.ts";
 export type WorkflowLiveSnapshotFallbackOptions = {
   plain?: boolean;
   width?: number;
+  executionViewModel?: ExecutionViewModel;
 };
 
 export function renderWorkflowLiveSnapshotFallback(snapshot: WorkflowLiveSnapshot, options: WorkflowLiveSnapshotFallbackOptions = {}): string {
@@ -64,6 +67,12 @@ export function renderWorkflowLiveSnapshotFallback(snapshot: WorkflowLiveSnapsho
     for (const task of snapshot.tasks) {
       push(`- Task ${task.taskId}${task.title ? ` ${task.title}` : ""}: ${task.status}${task.evidencePath ? ` evidence ${shortenWorkflowDisplayPath(task.evidencePath, 40)}` : ""}`);
     }
+  }
+
+  if (options.executionViewModel) {
+    push("");
+    push("## Execution");
+    for (const line of renderExecutionFallback(options.executionViewModel, { width }).split("\n")) push(line);
   }
 
   if (snapshot.diagnostics.length) {

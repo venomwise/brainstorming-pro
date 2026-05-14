@@ -81,3 +81,24 @@ test("fallback respects narrow width", () => {
     assert.ok(visibleWorkflowWidth(line) <= 48, `${visibleWorkflowWidth(line)} > 48: ${line}`);
   }
 });
+
+test("fallback can include execution view model detail", () => {
+  const output = renderWorkflowLiveSnapshotFallback(snapshot(), {
+    width: 120,
+    executionViewModel: {
+      topic: "live-progress",
+      runId: "run-1",
+      phase: "executing",
+      generatedAt: "now",
+      status: "running",
+      summary: { totalTasks: 1, completedTasks: 0, runningTasks: 1, pendingTasks: 0, skippedTasks: 0, blockedTasks: 0, failedTasks: 0 },
+      taskTimeline: [],
+      blockers: [],
+      mutationWarnings: [],
+      diagnostics: [],
+      safeCommands: ["/brainstorm-pro --status"],
+    },
+  });
+  assert.match(output, /## Execution/);
+  assert.match(output, /Execution: running/);
+});

@@ -4,9 +4,11 @@ This directory contains the Brainstorming Pro workflow live progress presentatio
 
 ## Implemented files
 
-- `workflow-widget.ts` — compact and expanded renderer for workflow phase, reviewer/agent/task progress, artifact refs, diagnostics, gate cards, optional runtime-gated interactive controls, and optional read-only review panel view models.
+- `workflow-widget.ts` — compact and expanded renderer for workflow phase, reviewer/agent/task progress, artifact refs, diagnostics, gate cards, optional runtime-gated interactive controls, optional read-only review panel view models, and optional read-only execution view models.
 - `review-panel-view-model.ts` and `review-panel/` — presentation-only review panel adapter and renderers for runtime/status supplied design review, triage, revision, stale evidence, fixed plan review, and automatic plan revision summaries.
+- `execution-view-model.ts` and `execution/` — presentation-only controlled execution adapter and renderers for runtime/status supplied task timeline, current task, checkpoint-as-task details, checkbox update status, mutation warnings, blockers, execution reports, and done cards.
 - `review-panel-fallback.ts` — deterministic non-TUI review summary output with safe `/brainstorm-pro --resume` and `/brainstorm-pro --status` hints.
+- `execution-fallback.ts` — deterministic non-TUI execution summary output with safe `/brainstorm-pro --resume` and `/brainstorm-pro --status` hints.
 +- `interactive-gates.ts` — snapshot-derived interactive gate models and pure decision payload builders.
 +- `decision-submission.ts` — idempotency-aware submission controller that calls the runtime decision facade.
 +- `decision-controls.ts` — facade-only rendering/state helpers for review mode, recovery, design approval, revision authorization, and plan approval controls.
@@ -23,7 +25,7 @@ TUI snapshots must be derived from workflow-owned data:
 2. durable `events.jsonl` for append-only workflow events;
 3. in-memory progress emitted by currently running workflow adapters or child processes.
 
-A `WorkflowLiveSnapshot` is presentation data only. Review panel summaries are also presentation data only and must come from runtime/status; TUI review panel code must not scan or mutate ledgers. TUI code can render phase/reviewer progress, approval cards, read-only review details, and optional controls can build `RuntimeUserDecision` intent, but TUI code cannot approve gates, retry reviewers, accept incomplete review, authorize revision, submit plan approval, mutate review decisions, advance workflow phases, change artifact refs, or write authoritative state.
+A `WorkflowLiveSnapshot` is presentation data only. Review panel summaries and execution summaries are also presentation data only and must come from runtime/status; TUI review panel and execution code must not scan or mutate ledgers, parse `tasks.md` for authority, diff workflow files, or infer execution truth from the filesystem. TUI code can render phase/reviewer/task progress, approval cards, read-only review details, read-only controlled execution details, and optional controls can build `RuntimeUserDecision` intent, but TUI code cannot approve gates, retry reviewers, accept incomplete review, authorize revision, submit plan approval, select execution tasks, write task checkboxes, validate execution evidence, launch agents, mutate review decisions, advance workflow phases, change artifact refs, or write authoritative state.
 
 Review panel stale evidence is provenance only: old design review, triage, readiness, revision, plan review, or plan revision evidence cannot approve the current artifact. Incomplete coverage is not a passed review and is not design approval. Plan review display is automatic and fixed; it has no skip/minimal/full mode, reviewer subset selection, partial accept, or per-reviewer retry controls.
 
@@ -31,9 +33,15 @@ Interactive controls require a runtime-owned gate binding (`gateId`, `gateNonce`
 
 `/brainstorm-pro --resume <topic>` remains the deterministic CLI fallback for every interactive action. If snapshots are stale, corrupt, missing bindings, too narrow to render safely, or input handling fails, controls must disable executable actions and show the fallback rather than guessing.
 
+## Execution views
+
+Controlled execution views are observability-only. The runtime and controlled spec-exec adapter own task parsing, task selection, single-task execution, evidence validation, checkbox writes, unauthorized mutation detection, blockers, reports, and workflow transitions. TUI execution modules render the runtime/status-owned `WorkflowExecutionSummary` and live snapshot hints as text.
+
+Checkpoint tasks must be rendered as execution validation tasks, not user approval gates. Checkbox update status and unauthorized `tasks.md` mutation warnings are displayed only as runtime/adapter-reported facts. Blocker and failure views may show safe command hints such as `/brainstorm-pro --status` and `/brainstorm-pro --resume`, but must not expose retry, abort, continue, skip, resolve, mark-complete, approval, task-runner, generic subagent orchestration, or state transition controls.
+
 ## Non-TUI fallback
 
-Every TUI feature must have a readable markdown or plain text fallback for non-interactive execution. If terminal capability detection fails, snapshot data is stale/corrupt, or rendering cannot fit the current width, the runtime should degrade to concise status text instead of corrupting workflow state. Runtime rejections must state that no decision was recorded and point users to `/brainstorm-pro --status` or `/brainstorm-pro --resume` when current status cannot be shown.
+Every TUI feature must have a readable markdown or plain text fallback for non-interactive execution. If terminal capability detection fails, snapshot data is stale/corrupt, execution rendering is unavailable, or rendering cannot fit the current width, the runtime should degrade to concise status text instead of corrupting workflow state. Runtime rejections must state that no decision was recorded and point users to `/brainstorm-pro --status` or `/brainstorm-pro --resume` when current status cannot be shown.
 
 ## Product boundary
 
