@@ -41,6 +41,17 @@ test("compact renderer shows running progress and respects width", () => {
   assertWidth(renderCompactWorkflowSnapshot(snapshot(), 24), 24);
 });
 
+test("workflow widget renders optional review panel in expanded mode and fails soft", () => {
+  const widget = new WorkflowLiveWidget({
+    getSnapshot: () => snapshot(),
+    initialMode: "expanded",
+    getReviewPanelViewModel: (live) => ({ topic: live.topic, runId: live.runId, phase: live.phase, staleEvidence: [], diagnostics: [{ level: "info", code: "x", message: "review detail" }] }),
+  });
+  assert.match(widget.render(100).join("\n"), /Review panel/);
+  const failing = new WorkflowLiveWidget({ getSnapshot: () => snapshot(), initialMode: "expanded", getReviewPanelViewModel: () => { throw new Error("boom"); } });
+  assert.match(failing.render(100).join("\n"), /Review panel rendering unavailable: boom/);
+});
+
 test("expanded renderer includes timeline, agents, reviewers, tasks, artifacts, diagnostics, and gates", () => {
   const lines = renderExpandedWorkflowSnapshot(snapshot({
     phase: "awaiting-design-approval",

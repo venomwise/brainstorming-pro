@@ -61,6 +61,10 @@ test("TUI scaffold docs describe snapshot-first foundation and interactive bound
     "Accept incomplete is not approval",
     "plan review mode/subset/partial-accept/per-reviewer retry controls",
     "Non-TUI fallback",
+    "review-panel-view-model.ts",
+    "stale evidence is provenance only",
+    "Incomplete coverage is not a passed review",
+    "Plan review display is automatic and fixed",
   ]) {
     assert.ok(tuiReadme.includes(expected), `TUI README should include ${expected}`);
   }

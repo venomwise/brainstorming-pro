@@ -11,6 +11,7 @@ import type { ApprovalRef, PendingGateBinding, ReviewDecisionRef, ReviewMode, Re
 import type { DesignReviewPanelResult } from "./adapters/design-review/types.ts";
 import type { DesignRevisionRecord } from "./adapters/design-revision/types.ts";
 import type { WorkflowDecisionSource } from "./decision-facade.ts";
+import { artifactDisplayRefFromVersionedArtifact, createEmptyWorkflowReviewPanelSummary, type WorkflowReviewPanelSummary } from "./review-panel-summary.ts";
 
 export type WorkflowBootstrapInput = {
   cwd: string;
@@ -52,6 +53,7 @@ export type WorkflowRuntimeStatus = {
   };
   lastError?: WorkflowErrorSnapshot;
   revisionHandoff?: ReviewPhaseStatus["revisionHandoff"];
+  reviewPanelSummary?: WorkflowReviewPanelSummary;
 };
 
 export type ResumeWorkflowInput = {
@@ -372,7 +374,56 @@ export function renderWorkflowStatus(state: WorkflowState): WorkflowRuntimeStatu
     ...(planReview ? { planReviewStatus: { readinessStatus: planReview.readinessStatus, ledgerPath: planReview.ledgerPath, reviewerStatus: state.reviewStatus.plan?.coverage, revisionAttemptStatus: planReview.revisionAttempted ? "attempted" : "not-attempted", postRevisionReviewStatus: state.reviewStatus.plan?.revisionHandoff?.postRevisionReviewRunId, nextAction: planReview.readinessStatus === "ready-for-plan-approval" ? "approve-plan" : "inspect-plan-review-diagnostics" } } : {}),
     lastError: state.lastError,
     revisionHandoff: state.reviewStatus.design?.revisionHandoff,
+    reviewPanelSummary: buildWorkflowReviewPanelSummary(state),
   };
+}
+
+function buildWorkflowReviewPanelSummary(state: WorkflowState): WorkflowReviewPanelSummary {
+  const summary = createEmptyWorkflowReviewPanelSummary({ topic: state.topic, runId: state.runId, generatedAt: new Date().toISOString(), diagnostics: [] });
+  const design = state.reviewStatus.design;
+  if (design) {
+    summary.designReview = {
+      mode: design.mode,
+      status: design.status,
+      designRef: design.artifacts[0] ? artifactDisplayRefFromVersionedArtifact(design.artifacts[0]) : undefined,
+      coverage: [],
+      readiness: design.readinessStatus ? { status: design.readinessStatus } : undefined,
+      partial: design.status === "partial",
+      incomplete: design.status === "partial" || design.reason === "incomplete-design-review",
+      stale: design.status === "unavailable" && design.reason?.includes("stale"),
+      diagnostics: design.reason ? [{ level: "warning", code: "design-review-reason", message: design.reason }] : [],
+    };
+  } else {
+    summary.diagnostics.push({ level: "info", code: "design-review-unavailable", message: "Design review summary is unavailable for the current workflow state." });
+  }
+  const revision = state.reviewStatus.design?.revisionHandoff;
+  if (revision) {
+    summary.designRevision = {
+      currentDesignRef: state.artifacts.design ? artifactDisplayRefFromVersionedArtifact(state.artifacts.design) : undefined,
+      latestRevision: {
+        revisionId: revision.revisionId,
+        revisedDesignRef: artifactDisplayRefFromVersionedArtifact(revision.revisedDesignRef),
+        status: "committed",
+        postRevisionReviewRunId: revision.postRevisionReviewRunId,
+      },
+    };
+  }
+  const plan = state.reviewStatus.plan;
+  if (plan?.planReview) {
+    const reviewed = plan.planReview.reviewedArtifacts;
+    summary.planReview = {
+      reviewRunId: plan.planReview.reviewRunId,
+      status: plan.status,
+      approvedDesignRef: reviewed.find((artifact) => artifact.kind === "design") ? artifactDisplayRefFromVersionedArtifact(reviewed.find((artifact) => artifact.kind === "design")!) : undefined,
+      requirementsRef: reviewed.find((artifact) => artifact.kind === "requirements") ? artifactDisplayRefFromVersionedArtifact(reviewed.find((artifact) => artifact.kind === "requirements")!) : undefined,
+      tasksRef: reviewed.find((artifact) => artifact.kind === "tasks") ? artifactDisplayRefFromVersionedArtifact(reviewed.find((artifact) => artifact.kind === "tasks")!) : undefined,
+      readiness: { status: plan.planReview.readinessStatus },
+      reviewers: [],
+      ledgerLinks: [{ label: "plan review ledger", path: plan.planReview.ledgerPath }],
+      automaticRevision: { attemptNumber: plan.planReview.revisionAttempted ? 1 : 0, maxAttempts: 1, status: plan.planReview.revisionAttempted ? "committed" : "not-needed" },
+    };
+  }
+  return summary;
 }
 
 export function applyPostRevisionReviewResultToState(state: WorkflowState, result: DesignReviewPanelResult, record: DesignRevisionRecord): WorkflowState {

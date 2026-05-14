@@ -4,7 +4,9 @@ This directory contains the Brainstorming Pro workflow live progress presentatio
 
 ## Implemented files
 
-- `workflow-widget.ts` — compact and expanded renderer for workflow phase, reviewer/agent/task progress, artifact refs, diagnostics, gate cards, and optional runtime-gated interactive controls.
+- `workflow-widget.ts` — compact and expanded renderer for workflow phase, reviewer/agent/task progress, artifact refs, diagnostics, gate cards, optional runtime-gated interactive controls, and optional read-only review panel view models.
+- `review-panel-view-model.ts` and `review-panel/` — presentation-only review panel adapter and renderers for runtime/status supplied design review, triage, revision, stale evidence, fixed plan review, and automatic plan revision summaries.
+- `review-panel-fallback.ts` — deterministic non-TUI review summary output with safe `/brainstorm-pro --resume` and `/brainstorm-pro --status` hints.
 +- `interactive-gates.ts` — snapshot-derived interactive gate models and pure decision payload builders.
 +- `decision-submission.ts` — idempotency-aware submission controller that calls the runtime decision facade.
 +- `decision-controls.ts` — facade-only rendering/state helpers for review mode, recovery, design approval, revision authorization, and plan approval controls.
@@ -21,7 +23,9 @@ TUI snapshots must be derived from workflow-owned data:
 2. durable `events.jsonl` for append-only workflow events;
 3. in-memory progress emitted by currently running workflow adapters or child processes.
 
-A `WorkflowLiveSnapshot` is presentation data only. TUI code can render phase/reviewer progress and approval cards, and optional controls can build `RuntimeUserDecision` intent, but TUI code cannot approve gates, mutate review decisions, advance workflow phases, change artifact refs, or write authoritative state.
+A `WorkflowLiveSnapshot` is presentation data only. Review panel summaries are also presentation data only and must come from runtime/status; TUI review panel code must not scan or mutate ledgers. TUI code can render phase/reviewer progress, approval cards, read-only review details, and optional controls can build `RuntimeUserDecision` intent, but TUI code cannot approve gates, retry reviewers, accept incomplete review, authorize revision, submit plan approval, mutate review decisions, advance workflow phases, change artifact refs, or write authoritative state.
+
+Review panel stale evidence is provenance only: old design review, triage, readiness, revision, plan review, or plan revision evidence cannot approve the current artifact. Incomplete coverage is not a passed review and is not design approval. Plan review display is automatic and fixed; it has no skip/minimal/full mode, reviewer subset selection, partial accept, or per-reviewer retry controls.
 
 Interactive controls require a runtime-owned gate binding (`gateId`, `gateNonce`, phase, artifact refs/checksums) and submit an idempotency key with each attempt. The runtime reloads authoritative state, validates the pending gate, nonce, phase, artifact refs, checksums, readiness/recovery context where applicable, and duplicate submissions before any durable write. A repeated submission with the same accepted idempotency key is treated separately from a stale or duplicate decision.
 
