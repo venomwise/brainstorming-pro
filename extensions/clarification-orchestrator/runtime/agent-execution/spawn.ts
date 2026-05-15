@@ -75,6 +75,15 @@ export async function spawnAgentProcess(
     timeout = setTimeout(() => {
       timedOut = true;
       child.kill();
+      setTimeout(() => {
+        if (settled) return;
+        void finish({
+          status: "timed-out",
+          exitCode: null,
+          signal: "SIGKILL",
+          error: createAgentRunError("timeout", `Agent process timed out after ${limits.timeoutMs}ms and did not exit after SIGTERM.`, { details: { timeoutMs: limits.timeoutMs } }),
+        });
+      }, Math.min(5_000, Math.max(250, limits.timeoutMs)));
     }, limits.timeoutMs);
 
     child.stdout?.on("data", (chunk: Buffer) => {

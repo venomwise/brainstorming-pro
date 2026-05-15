@@ -1,7 +1,8 @@
 import type { ExtensionCommandContext } from "@mariozechner/pi-coding-agent";
 import { tokenizeArgs } from "../options.ts";
 import { validateClarificationTopicSlug } from "../topic-validation.ts";
-import { getStatus, resumeWorkflow, startWorkflow, augmentWorkflow, type RuntimeUserDecision } from "../workflow/runtime.ts";
+import { getStatus, resumeWorkflow, startWorkflow, augmentWorkflow, type RuntimeUserDecision, type WorkflowRuntimeStatus } from "../workflow/runtime.ts";
+import type { WorkflowState } from "../workflow/types.ts";
 import { WorkflowProgressController } from "../workflow/live-snapshot-store.ts";
 import { openWorkflowLiveSession, type WorkflowTuiContext } from "../tui/workflow-session.ts";
 import { proposeWorkflowTopic } from "../workflow/topic-proposal.ts";
@@ -28,7 +29,7 @@ export async function handleBrainstormProCommand(args: string, ctx: ExtensionCom
       if (!ctx.model) throw new Error("Starting a new Brainstorming Pro workflow requires a selected model to propose a topic.");
       const topic = await proposeWorkflowTopic({ request: options.request, model: ctx.model, modelRegistry: ctx.modelRegistry, signal: ctx.signal });
       const { state } = await startWorkflow({ cwd, topic, request: options.request });
-      ctx.ui.notify(`Started Brainstorming Pro workflow ${state.topic}: ${state.phase}`, "info");
+      await presentWorkflowOperationWithLiveTui(state, ctx, (controller) => resumeWorkflow({ cwd, topic: state.topic, onWorkflowProgress: (event) => { controller.emit(event); } }));
       return;
     }
     if (options.action === "augment") {
@@ -37,8 +38,12 @@ export async function handleBrainstormProCommand(args: string, ctx: ExtensionCom
       return;
     }
     if (options.action === "resume") {
-      const result = await resumeWorkflow({ cwd, topic: options.topic, decision: options.decision });
-      await presentResumeResultWithOptionalLiveTui(result, ctx);
+      const initial = await getStatus(cwd, options.topic);
+      if ("selectionRequired" in initial) {
+        ctx.ui.notify(renderWorkflowUxResult(initial), "info");
+        return;
+      }
+      await presentWorkflowOperationWithLiveTui(initial, ctx, (controller) => resumeWorkflow({ cwd, topic: initial.topic, decision: options.decision, onWorkflowProgress: (event) => { controller.emit(event); } }));
       return;
     }
     const status = await getStatus(cwd, options.topic);
@@ -48,27 +53,34 @@ export async function handleBrainstormProCommand(args: string, ctx: ExtensionCom
   }
 }
 
-async function presentResumeResultWithOptionalLiveTui(result: Awaited<ReturnType<typeof resumeWorkflow>>, ctx: ExtensionCommandContext): Promise<void> {
-  if ("selectionRequired" in result) {
-    ctx.ui.notify(renderWorkflowUxResult(result), "info");
-    return;
-  }
-
-  const controller = new WorkflowProgressController({ topic: result.topic, runId: result.runId });
+async function presentWorkflowOperationWithLiveTui(
+  initial: WorkflowState | WorkflowRuntimeStatus,
+  ctx: ExtensionCommandContext,
+  operation: (controller: WorkflowProgressController) => Promise<WorkflowState | { selectionRequired: string[] }>,
+): Promise<void> {
+  const controller = new WorkflowProgressController({ topic: initial.topic, runId: initial.runId });
+  let current: WorkflowState | WorkflowRuntimeStatus = initial;
   const session = await openWorkflowLiveSession({
     ctx: ctx as unknown as WorkflowTuiContext,
     controller,
-    getSnapshot: () => controller.getSnapshot(result),
+    getSnapshot: () => controller.getSnapshot(current),
     interactive: Boolean(process.stdout.isTTY),
     width: process.stdout.columns,
   });
   try {
     session.requestRender();
+    const result = await operation(controller);
+    if ("selectionRequired" in result) {
+      ctx.ui.notify(renderWorkflowUxResult(result), "info");
+      return;
+    }
+    current = result;
+    session.requestRender();
+    ctx.ui.notify(renderWorkflowUxResult(result), "info");
   } finally {
     await session.close();
     controller.close();
   }
-  ctx.ui.notify(renderWorkflowUxResult(result), "info");
 }
 
 export function parseBrainstormProArgs(args: string): BrainstormProOptions {

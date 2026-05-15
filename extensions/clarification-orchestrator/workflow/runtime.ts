@@ -4,6 +4,7 @@ import { randomUUID } from "node:crypto";
 import { validateClarificationTopicSlug } from "../topic-validation.ts";
 import { createWorkflowLayout, writeVersionedArtifact } from "./artifact-store.ts";
 import { appendWorkflowEvent } from "./events.ts";
+import { artifactProgress, phaseProgress } from "./progress-adapters.ts";
 import { transition, type TransitionContext } from "./state-machine.ts";
 import { defaultWorkflowAdapters } from "./adapters/registry.ts";
 import { isAdapterPhaseResult, type AdapterPhaseResult } from "./adapters/types.ts";
@@ -13,6 +14,7 @@ import type { DesignRevisionRecord } from "./adapters/design-revision/types.ts";
 import type { WorkflowDecisionSource } from "./decision-facade.ts";
 import { artifactDisplayRefFromVersionedArtifact, createEmptyWorkflowReviewPanelSummary, type WorkflowReviewPanelSummary } from "./review-panel-summary.ts";
 import { createEmptyWorkflowExecutionSummary, type WorkflowExecutionSummary } from "./execution-summary.ts";
+import type { WorkflowProgressEvent } from "./progress-types.ts";
 
 export type WorkflowBootstrapInput = {
   cwd: string;
@@ -62,6 +64,7 @@ export type ResumeWorkflowInput = {
   cwd: string;
   topic?: string;
   decision?: RuntimeUserDecision;
+  onWorkflowProgress?: (event: WorkflowProgressEvent) => void | Promise<void>;
 };
 
 export type RuntimeUserDecision =
@@ -92,6 +95,7 @@ export type WorkflowAdapter = {
 export type WorkflowRuntimeOptions = {
   adapters?: Partial<Record<WorkflowPhase, WorkflowAdapter>>;
   useDefaultAdapters?: boolean;
+  onWorkflowProgress?: (event: WorkflowProgressEvent) => void | Promise<void>;
 };
 
 export function createWorkflowRunId(date = new Date()): string {
@@ -170,10 +174,12 @@ export async function augmentWorkflow(input: WorkflowAugmentInput): Promise<{ st
 export class WorkflowRuntimeOrchestrator {
   private readonly cwd: string;
   private readonly adapters: Partial<Record<WorkflowPhase, WorkflowAdapter>>;
+  private readonly onWorkflowProgress?: (event: WorkflowProgressEvent) => void | Promise<void>;
 
   constructor(cwd: string, options: WorkflowRuntimeOptions = {}) {
     this.cwd = cwd;
-    this.adapters = options.useDefaultAdapters ? { ...defaultWorkflowAdapters(cwd), ...(options.adapters ?? {}) } : (options.adapters ?? {});
+    this.onWorkflowProgress = options.onWorkflowProgress;
+    this.adapters = options.useDefaultAdapters ? { ...defaultWorkflowAdapters(cwd, undefined, options.onWorkflowProgress), ...(options.adapters ?? {}) } : (options.adapters ?? {});
   }
 
   async startWorkflow(topic: string, request: string): Promise<WorkflowState> {
@@ -208,8 +214,10 @@ export class WorkflowRuntimeOrchestrator {
     const adapter = this.adapters[state.phase];
     if (!adapter) return saveWorkflowState(this.cwd, withPendingDecision(state));
     try {
+      await this.emitProgress({ type: "phase.started", topic: state.topic, runId: state.runId, phase: state.phase, at: new Date().toISOString(), status: "running", activity: `Running ${state.phase}` });
       const result = await adapter.run(state);
       const next = await this.applyAdapterResult(state, result);
+      await this.emitProgress({ ...phaseProgress(state, { type: "phase.completed", status: next.phase === "blocked" || next.phase === "failed" ? next.phase : "completed" }), ...(next.phase === state.phase ? {} : { output: `Next phase: ${next.phase}` }) });
       return saveWorkflowState(this.cwd, withPendingDecision(next));
     } catch (error) {
       return saveWorkflowState(this.cwd, { ...state, phase: "blocked", lastError: { message: error instanceof Error ? error.message : String(error), phase: state.phase, recoverable: true, occurredAt: new Date().toISOString() }, updatedAt: new Date().toISOString() });
@@ -227,6 +235,7 @@ export class WorkflowRuntimeOrchestrator {
         const ref = await writeVersionedArtifact(layout, artifact.kind, artifact.content);
         committed[artifact.kind] = ref;
         await appendWorkflowEvent(layout, { type: "artifact.created", phase: state.phase, details: { artifact: ref, summary: artifact.summary } });
+        await this.emitProgress({ ...artifactProgress(state, ref, { status: "created" }), ...(artifact.summary ? { evidence: artifact.summary } : {}) });
       }
       const artifacts = { ...state.artifacts, ...committed };
       const phase = phaseAfterArtifactCommit(state.phase);
@@ -267,6 +276,14 @@ export class WorkflowRuntimeOrchestrator {
     };
   }
 
+  private async emitProgress(event: WorkflowProgressEvent): Promise<void> {
+    try {
+      await this.onWorkflowProgress?.(event);
+    } catch {
+      // Live progress is presentation-only; runtime state transitions must not fail because rendering failed.
+    }
+  }
+
   private async singlePendingTopic(): Promise<string | undefined> {
     const topics = await discoverWorkflowTopics(this.cwd);
     return topics.length === 1 ? topics[0] : undefined;
@@ -274,7 +291,7 @@ export class WorkflowRuntimeOrchestrator {
 }
 
 export async function resumeWorkflow(input: ResumeWorkflowInput): Promise<WorkflowState | { selectionRequired: string[] }> {
-  return new WorkflowRuntimeOrchestrator(input.cwd, { useDefaultAdapters: true }).resumeWorkflow(input.topic, input.decision);
+  return new WorkflowRuntimeOrchestrator(input.cwd, { useDefaultAdapters: true, onWorkflowProgress: input.onWorkflowProgress }).resumeWorkflow(input.topic, input.decision);
 }
 
 export async function getStatus(cwd: string, topic?: string): Promise<WorkflowRuntimeStatus | { selectionRequired: string[] }> {

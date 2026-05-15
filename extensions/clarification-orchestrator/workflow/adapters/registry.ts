@@ -2,19 +2,20 @@ import { createBrainstormingAdapter } from "./brainstorming.ts";
 import { createSpecPlanAdapter } from "./spec-plan.ts";
 import { createSpecExecAdapter, specExecAdapter } from "./spec-exec.ts";
 import { createAdapterRegistry, type PhaseAdapter } from "./types.ts";
+import type { AgentBackedAdapterOptions } from "./agent-backed.ts";
 import type { WorkflowAdapter } from "../runtime.ts";
 import type { WorkflowState } from "../types.ts";
 import { createDesignReviewAdapter, designReviewAdapter } from "./design-review.ts";
 import { createPlanReviewAdapter, planReviewAdapter } from "./plan-review.ts";
 import { executionReviewAdapter } from "./execution-review.ts";
 
-export function defaultWorkflowAdapters(projectRoot: string, model = process.env.BRAINSTORMING_PRO_AGENT_MODEL ?? "openai:gpt-4o-mini") {
+export function defaultWorkflowAdapters(projectRoot: string, model = process.env.BRAINSTORMING_PRO_AGENT_MODEL ?? "openai:gpt-4o-mini", onWorkflowProgress?: AgentBackedAdapterOptions["onWorkflowProgress"]) {
   return {
-    designing: asWorkflowAdapter(createBrainstormingAdapter({ projectRoot, model })),
-    planning: asWorkflowAdapter(createSpecPlanAdapter({ projectRoot, model })),
-    "design-review": asWorkflowAdapter(createDesignReviewAdapter({ projectRoot, model })),
+    designing: asWorkflowAdapter(createBrainstormingAdapter({ projectRoot, model, onWorkflowProgress })),
+    planning: asWorkflowAdapter(createSpecPlanAdapter({ projectRoot, model, onWorkflowProgress })),
+    "design-review": asWorkflowAdapter(createDesignReviewAdapter({ projectRoot, model, onWorkflowProgress })),
     "plan-review": asWorkflowAdapter(createPlanReviewAdapter({ projectRoot, model })),
-    executing: asWorkflowAdapter(createSpecExecAdapter({ projectRoot, model })),
+    executing: asWorkflowAdapter(createSpecExecAdapter({ projectRoot, model, onWorkflowProgress })),
   };
 }
 
