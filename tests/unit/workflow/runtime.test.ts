@@ -16,12 +16,12 @@ const designRef: VersionedArtifactRef = { kind: "design", version: 1, path: ".wo
 
 test("starts a workflow with isolated state", async () => {
   const cwd = await tempProject();
-  const { state } = await startWorkflow({ cwd, agentModel: "openai/test", topic: "my-topic", request: "Build feature", runId: "run-1" });
+  const { state } = await startWorkflow({ cwd, agentModel: "Alpha/gpt-5.5", topic: "my-topic", request: "Build feature", runId: "run-1" });
   assert.equal(state.phase, "designing");
   assert.equal(state.runId, "run-1");
-  assert.equal(state.agentModel, "openai/test");
+  assert.equal(state.agentModel, "Alpha/gpt-5.5");
   const persisted = JSON.parse(await fs.readFile(path.join(cwd, "specs", "my-topic", ".workflow", "runs", "run-1", "state.json"), "utf8")) as { agentModel?: string };
-  assert.equal(persisted.agentModel, "openai/test");
+  assert.equal(persisted.agentModel, "Alpha/gpt-5.5");
 });
 
 test("augments an existing workflow with supplemental request context", async () => {
@@ -46,15 +46,15 @@ test("patches legacy workflow agent model", async () => {
   const { agentModel: _legacyRemoved, ...legacyState } = initial;
   await saveWorkflowState(cwd, legacyState);
 
-  const patched = await persistWorkflowAgentModel(cwd, "my-topic", "anthropic/claude-sonnet-4");
-  assert.equal(patched.agentModel, "anthropic/claude-sonnet-4");
+  const patched = await persistWorkflowAgentModel(cwd, "my-topic", "Alpha/gpt-5.5");
+  assert.equal(patched.agentModel, "Alpha/gpt-5.5");
   assert.equal(patched.phase, "designing");
   const persisted = JSON.parse(await fs.readFile(path.join(cwd, "specs", "my-topic", ".workflow", "runs", "run-1", "state.json"), "utf8")) as { agentModel?: string };
-  assert.equal(persisted.agentModel, "anthropic/claude-sonnet-4");
+  assert.equal(persisted.agentModel, "Alpha/gpt-5.5");
 
-  await assert.rejects(() => persistWorkflowAgentModel(cwd, "my-topic", "gpt-4o-mini"), /Legacy workflow still lacks a valid agentModel: Model 'gpt-4o-mini' is not provider-qualified/);
+  await assert.rejects(() => persistWorkflowAgentModel(cwd, "my-topic", "gpt-4o-mini"), /Legacy workflow still lacks a valid agentModel: Model 'gpt-4o-mini' must have non-empty provider and model segments separated by '\/'/);
   const afterRejectedPatch = JSON.parse(await fs.readFile(path.join(cwd, "specs", "my-topic", ".workflow", "runs", "run-1", "state.json"), "utf8")) as { agentModel?: string; phase?: string };
-  assert.equal(afterRejectedPatch.agentModel, "anthropic/claude-sonnet-4");
+  assert.equal(afterRejectedPatch.agentModel, "Alpha/gpt-5.5");
   assert.equal(afterRejectedPatch.phase, "designing");
 });
 
@@ -77,7 +77,7 @@ test("default runtime adapters reject invalid workflow agent model before execut
 
   await assert.rejects(
     () => new WorkflowRuntimeOrchestrator(cwd, { useDefaultAdapters: true }).resumeWorkflow("my-topic"),
-    /Expected format '<provider>\/<model>'/u,
+    /must have non-empty provider and model segments separated by '\/'/u,
   );
 });
 

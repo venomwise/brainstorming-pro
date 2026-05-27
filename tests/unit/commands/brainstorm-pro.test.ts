@@ -16,6 +16,22 @@ async function tempProject(): Promise<string> {
   return fs.mkdtemp(path.join(os.tmpdir(), "bp-command-"));
 }
 
+async function withFakePiListModels<T>(cwd: string, stdout: string, run: () => Promise<T>): Promise<T> {
+  const binDir = path.join(cwd, "node_modules", ".bin");
+  await fs.mkdir(binDir, { recursive: true });
+  const piPath = path.join(binDir, "pi");
+  await fs.writeFile(piPath, `#!/usr/bin/env node\nif (!process.argv.includes("--list-models")) process.exit(2);\nprocess.stdout.write(${JSON.stringify(stdout)});\n`);
+  await fs.chmod(piPath, 0o755);
+  const previous = process.env.PI_COMMAND;
+  process.env.PI_COMMAND = piPath;
+  try {
+    return await run();
+  } finally {
+    if (previous === undefined) delete process.env.PI_COMMAND;
+    else process.env.PI_COMMAND = previous;
+  }
+}
+
 function fakeModel(provider: string, id: string): FakeModel {
   return { provider, id } as FakeModel;
 }
@@ -89,11 +105,12 @@ test("rejects invalid parser combinations and helper values", () => {
 test("start picker cancellation aborts without creating a workflow", async () => {
   const cwd = await tempProject();
   const notifications: Array<{ message: string; type?: "info" | "warning" | "error" }> = [];
-  await handleBrainstormProCommand("Build a thing", fakeCommandContext({
-    cwd,
-    available: [fakeModel("openai", "gpt-4o-mini")],
-    notifications,
-  }));
+  await withFakePiListModels(cwd, "provider  model\nopenai    gpt-4o-mini\n", async () => {
+    await handleBrainstormProCommand("Build a thing", fakeCommandContext({
+      cwd,
+      notifications,
+    }));
+  });
 
   assert.equal(notifications.at(-1)?.type, "error");
   assert.match(notifications.at(-1)?.message ?? "", /No workflow model was selected/);
@@ -103,7 +120,9 @@ test("start picker cancellation aborts without creating a workflow", async () =>
 test("start without configured models aborts without creating a workflow", async () => {
   const cwd = await tempProject();
   const notifications: Array<{ message: string; type?: "info" | "warning" | "error" }> = [];
-  await handleBrainstormProCommand("Build a thing", fakeCommandContext({ cwd, available: [], notifications }));
+  await withFakePiListModels(cwd, "provider  model\n", async () => {
+    await handleBrainstormProCommand("Build a thing", fakeCommandContext({ cwd, notifications }));
+  });
 
   assert.equal(notifications.at(-1)?.type, "error");
   assert.match(notifications.at(-1)?.message ?? "", /pi --list-models/);
@@ -143,6 +162,25 @@ test("legacy resume patches missing agent model before runtime resume", async ()
 
   const state = await loadLatestWorkflowState(cwd, "my-topic");
   assert.equal(state.agentModel, "anthropic/claude-sonnet-4");
+  assert.equal(state.phase, "awaiting-design-review-decision");
+  assert.equal(notifications.at(-1)?.type, "info");
+});
+
+test("legacy resume can patch missing agent model from parsed pi list-models output", async () => {
+  const cwd = await tempProject();
+  await writeDecisionPhaseWorkflow(cwd);
+  const notifications: Array<{ message: string; type?: "info" | "warning" | "error" }> = [];
+
+  await withFakePiListModels(cwd, "provider  model\nAlpha     gpt-5.5\n", async () => {
+    await handleBrainstormProCommand("--resume my-topic", fakeCommandContext({
+      cwd,
+      selected: "Alpha/gpt-5.5",
+      notifications,
+    }));
+  });
+
+  const state = await loadLatestWorkflowState(cwd, "my-topic");
+  assert.equal(state.agentModel, "Alpha/gpt-5.5");
   assert.equal(state.phase, "awaiting-design-review-decision");
   assert.equal(notifications.at(-1)?.type, "info");
 });

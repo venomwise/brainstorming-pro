@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import type { ExtensionCommandContext } from "@mariozechner/pi-coding-agent";
+import type { ListedPiModel } from "../../../extensions/clarification-orchestrator/commands/pi-list-models.ts";
 import {
   modelToProviderQualifiedId,
   resolveWorkflowAgentModel,
@@ -16,9 +17,12 @@ function fakeModel(provider: string, id: string): FakeModel {
   return { provider, id } as FakeModel;
 }
 
+function listedModel(provider: string, model: string): ListedPiModel {
+  return { provider, model, label: `${provider}/${model}` };
+}
+
 function fakeContext(options: {
   model?: FakeModel;
-  available?: FakeModel[];
   selected?: string;
   hasUI?: boolean;
   onSelect?: () => void;
@@ -27,7 +31,7 @@ function fakeContext(options: {
     model: options.model,
     hasUI: options.hasUI ?? true,
     modelRegistry: {
-      getAvailable: () => options.available ?? [],
+      getAvailable: () => { throw new Error("modelRegistry.getAvailable should not be used for workflow picker discovery"); },
     },
     ui: {
       select: async () => {
@@ -39,50 +43,61 @@ function fakeContext(options: {
 }
 
 test("formats and validates workflow agent model ids", () => {
-  assert.equal(modelToProviderQualifiedId(fakeModel("openai", "gpt-4o-mini")), "openai/gpt-4o-mini");
-  assert.equal(validateWorkflowAgentModel("openai/test"), "openai/test");
-  assert.throws(() => validateWorkflowAgentModel("gpt-4o-mini"), /Expected format '<provider>\/<model>'/);
+  assert.equal(modelToProviderQualifiedId(fakeModel("Alpha", "gpt-5.5")), "Alpha/gpt-5.5");
+  assert.equal(validateWorkflowAgentModel("Alpha/gpt-5.5"), "Alpha/gpt-5.5");
+  assert.throws(() => validateWorkflowAgentModel("gpt-4o-mini"), /non-empty provider and model segments separated by '\/'/);
 });
 
 test("prefers current session model without opening picker", async () => {
   let selectCalls = 0;
-  const current = fakeModel("anthropic", "claude-sonnet-4");
+  let discoveryCalls = 0;
+  const current = fakeModel("Alpha", "gpt-5.5");
   const result = await resolveWorkflowAgentModel(fakeContext({
     model: current,
-    available: [fakeModel("openai", "gpt-4o-mini")],
     selected: "openai/gpt-4o-mini",
     onSelect: () => { selectCalls++; },
-  }), { reason: "start" });
+  }), {
+    reason: "start",
+    listPiModels: async () => {
+      discoveryCalls++;
+      return [listedModel("openai", "gpt-4o-mini")];
+    },
+  });
 
   assert.equal(result.model, current);
-  assert.equal(result.agentModel, "anthropic/claude-sonnet-4");
+  assert.equal(result.agentModel, "Alpha/gpt-5.5");
   assert.equal(result.source, "current");
   assert.equal(selectCalls, 0);
+  assert.equal(discoveryCalls, 0);
 });
 
-test("uses model registry picker when no current model exists", async () => {
-  const openai = fakeModel("openai", "gpt-4o-mini");
-  const anthropic = fakeModel("anthropic", "claude-sonnet-4");
+test("uses pi list-models picker when no current model exists", async () => {
   const result = await resolveWorkflowAgentModel(fakeContext({
-    available: [openai, anthropic],
-    selected: "anthropic/claude-sonnet-4",
-  }), { reason: "start" });
+    selected: "Alpha/gpt-5.5",
+  }), {
+    reason: "start",
+    listPiModels: async () => [listedModel("openai", "gpt-4o-mini"), listedModel("Alpha", "gpt-5.5")],
+  });
 
-  assert.equal(result.model, anthropic);
-  assert.equal(result.agentModel, "anthropic/claude-sonnet-4");
+  assert.equal(result.model.provider, "Alpha");
+  assert.equal(result.model.id, "gpt-5.5");
+  assert.equal(result.agentModel, "Alpha/gpt-5.5");
   assert.equal(result.source, "picker");
 });
 
 test("rejects cancelled picker without selecting a workflow model", async () => {
   await assert.rejects(
-    resolveWorkflowAgentModel(fakeContext({ available: [fakeModel("openai", "gpt-4o-mini")] }), { reason: "start" }),
+    resolveWorkflowAgentModel(fakeContext({}), {
+      reason: "start",
+      listPiModels: async () => [listedModel("openai", "gpt-4o-mini")],
+    }),
     new RegExp(WORKFLOW_AGENT_MODEL_CANCELLED_MESSAGE.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")),
   );
 });
 
-test("rejects empty model registry with setup guidance", async () => {
+test("rejects empty discovered model list with setup guidance", async () => {
   await assert.rejects(
-    resolveWorkflowAgentModel(fakeContext({ available: [] }), { reason: "start" }),
+    resolveWorkflowAgentModel(fakeContext({}), { reason: "start", listPiModels: async () => [] }),
     (error: unknown) => error instanceof Error
       && error.message === WORKFLOW_AGENT_MODEL_NO_AVAILABLE_MESSAGE
       && error.message.includes("pi --list-models")
@@ -90,17 +105,25 @@ test("rejects empty model registry with setup guidance", async () => {
   );
 });
 
-test("rejects non-interactive missing model without opening picker", async () => {
+test("rejects non-interactive missing model without discovery or picker", async () => {
   let selectCalls = 0;
+  let discoveryCalls = 0;
   await assert.rejects(
     resolveWorkflowAgentModel(fakeContext({
-      available: [fakeModel("openai", "gpt-4o-mini")],
       hasUI: false,
       onSelect: () => { selectCalls++; },
-    }), { reason: "start", interactive: false }),
+    }), {
+      reason: "start",
+      interactive: false,
+      listPiModels: async () => {
+        discoveryCalls++;
+        return [listedModel("openai", "gpt-4o-mini")];
+      },
+    }),
     (error: unknown) => error instanceof Error
       && error.message === WORKFLOW_AGENT_MODEL_NON_INTERACTIVE_MESSAGE
       && error.message.includes("selected model"),
   );
   assert.equal(selectCalls, 0);
+  assert.equal(discoveryCalls, 0);
 });

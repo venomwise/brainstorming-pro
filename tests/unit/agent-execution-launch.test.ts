@@ -15,7 +15,7 @@ test("buildAgentLaunchSpec uses no-session, no-skills, shell false, env marker, 
   const spec = buildAgentLaunchSpec({
     invocation: { command: "/usr/local/bin/pi", argsPrefix: [], source: "explicit" },
     role: "design-author",
-    model: "openai/gpt-5-mini",
+    model: "Alpha/gpt-5.5",
     promptFilePath: "/repo/specs/topic/.workflow/runs/run-1/agents/agent-1/prompt.md",
     systemPromptFilePath: "/repo/specs/topic/.workflow/runs/run-1/agents/agent-1/system-prompt.md",
     outputDirectory: "/repo/specs/topic/.workflow/runs/run-1/agents/agent-1",
@@ -28,6 +28,7 @@ test("buildAgentLaunchSpec uses no-session, no-skills, shell false, env marker, 
   assert.equal(spec.cwd, "/repo");
   assert.ok(spec.args.includes("--no-session"));
   assert.ok(spec.args.includes("--no-skills"));
+  assert.equal(spec.args[spec.args.indexOf("--model") + 1], "Alpha/gpt-5.5");
   assert.equal(spec.env[BRAINSTORMING_PRO_CHILD_ENV], "1");
   assert.equal(spec.env[BRAINSTORMING_PRO_DEPTH_ENV], "1");
   assert.equal(validateAgentLaunchSpec(spec).ok, true);
@@ -64,11 +65,19 @@ test("resolvePiInvocationSync can derive current pi cli as node plus argsPrefix"
   });
 });
 
-test("model policy rejects non provider-qualified models before spawn", () => {
-  assert.equal(validateProviderQualifiedModel("openai/gpt-5-mini").ok, true);
-  const invalid = validateProviderQualifiedModel("gpt-5-mini");
-  assert.equal(invalid.ok, false);
-  if (!invalid.ok) assert.equal(invalid.error.kind, "model-policy-violation");
+test("model policy accepts provider-qualified models without provider naming restrictions", () => {
+  assert.equal(validateProviderQualifiedModel("Alpha/gpt-5.5").ok, true);
+  assert.equal(validateProviderQualifiedModel("openai/gpt-4o").ok, true);
+  assert.equal(validateProviderQualifiedModel("星辰-gpt-pro/some-model").ok, true);
+  assert.equal(validateProviderQualifiedModel("Provider/model:with.dash_under").ok, true);
+});
+
+test("model policy rejects structurally invalid or unsafe model strings", () => {
+  for (const value of ["", "gpt-5-mini", "/gpt-5-mini", "Alpha/", "Alpha/gpt\n5", "Alpha/gpt\r5", "Alpha/gpt\u00005"]) {
+    const invalid = validateProviderQualifiedModel(value);
+    assert.equal(invalid.ok, false, value);
+    if (!invalid.ok) assert.equal(invalid.error.kind, "model-policy-violation");
+  }
 });
 
 test("recursion guard rejects child marker and max depth", () => {

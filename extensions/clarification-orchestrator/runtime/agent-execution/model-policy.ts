@@ -1,7 +1,5 @@
 import { createAgentRunError, type AgentRunError, type ProviderQualifiedModel } from "./types.ts";
 
-const PROVIDER_QUALIFIED_MODEL_PATTERN = /^[a-z0-9][a-z0-9._-]*\/[A-Za-z0-9][A-Za-z0-9._:-]*$/u;
-
 export function validateProviderQualifiedModel(model: ProviderQualifiedModel): { ok: true; model: ProviderQualifiedModel } | { ok: false; error: AgentRunError } {
   if (typeof model !== "string" || model.trim().length === 0) {
     return {
@@ -11,16 +9,21 @@ export function validateProviderQualifiedModel(model: ProviderQualifiedModel): {
   }
 
   const normalized = model.trim();
-  if (!PROVIDER_QUALIFIED_MODEL_PATTERN.test(normalized)) {
+  const slashIndex = normalized.indexOf("/");
+  if (slashIndex <= 0 || slashIndex === normalized.length - 1 || containsControlCharacter(normalized)) {
     return {
       ok: false,
       error: createAgentRunError(
         "model-policy-violation",
-        `Model '${model}' is not provider-qualified. Expected format '<provider>/<model>'.`,
+        `Model '${model}' must have non-empty provider and model segments separated by '/'.`,
         { details: { model } },
       ),
     };
   }
 
   return { ok: true, model: normalized };
+}
+
+function containsControlCharacter(value: string): boolean {
+  return /\p{Cc}/u.test(value);
 }

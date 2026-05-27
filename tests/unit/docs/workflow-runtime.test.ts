@@ -51,11 +51,15 @@ test("README documents workflow agent model selection and persistence", async ()
   const readme = await read("README.md");
   for (const expected of [
     "provider-qualified workflow agent model",
-    "configured models",
-    "selected `agentModel`",
+    "configured Pi models",
+    "parses its provider/model rows",
+    "formatted internally as `<provider>/<model>`",
+    "provider value preserved exactly",
+    "string `agentModel`",
     "reuses the workflow's persisted `agentModel`",
     "without prompting for or patching a workflow model",
     "pi --list-models",
+    "`agentModel` remains a string",
     "--model provider/model",
     "fail closed when an agent-backed phase is invoked without a valid provider-qualified model",
   ]) {
