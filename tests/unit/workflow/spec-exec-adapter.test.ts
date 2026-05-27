@@ -12,7 +12,7 @@ import type { RunAgentFunction } from "../../../extensions/clarification-orchest
 
 test("spec-exec adapter completes a single task through fake child and code-owned checkbox update", async () => {
   const { cwd, state } = await fixtureState();
-  const adapter = createSpecExecAdapter({ projectRoot: cwd, model: "openai:gpt-4o-mini", runAgent: completedRunAgent });
+  const adapter = createSpecExecAdapter({ projectRoot: cwd, model: "openai/gpt-4o-mini", runAgent: completedRunAgent });
   const output = await adapter.run(state, state);
   assert.equal(output.kind, "state-patch");
   assert.equal(output.kind === "state-patch" && output.statePatch.phase, "done");
@@ -21,7 +21,7 @@ test("spec-exec adapter completes a single task through fake child and code-owne
 
 test("spec-exec adapter stops on blocked child result", async () => {
   const { cwd, state } = await fixtureState();
-  const adapter = createSpecExecAdapter({ projectRoot: cwd, model: "openai:gpt-4o-mini", runAgent: blockedRunAgent });
+  const adapter = createSpecExecAdapter({ projectRoot: cwd, model: "openai/gpt-4o-mini", runAgent: blockedRunAgent });
   const output = await adapter.run(state, state);
   assert.equal(output.kind, "state-patch");
   assert.equal(output.kind === "state-patch" && output.statePatch.phase, "blocked");
@@ -35,7 +35,7 @@ test("spec-exec adapter blocks unauthorized child tasks.md mutation", async () =
     await fs.appendFile(path.join(cwd, "specs/my-topic/tasks.md"), "\nchild mutation");
     return completedRunAgent(request);
   };
-  const adapter = createSpecExecAdapter({ projectRoot: cwd, model: "openai:gpt-4o-mini", runAgent });
+  const adapter = createSpecExecAdapter({ projectRoot: cwd, model: "openai/gpt-4o-mini", runAgent });
   const output = await adapter.run(state, state);
   assert.equal(output.kind, "state-patch");
   assert.equal(output.kind === "state-patch" && output.statePatch.phase, "blocked");
@@ -81,6 +81,6 @@ async function fixtureState(): Promise<{ cwd: string; state: WorkflowState }> {
   const requirements = await writeVersionedArtifact(layout, "requirements", "# Requirements\n");
   const tasks = await writeVersionedArtifact(layout, "tasks", "## Tasks\n- [ ] 1. Do\n  - _Requirements: 1.1_\n");
   const planApproval = await approveGate(layout, { gate: "plan", artifacts: [requirements, tasks], approvedBy: "tester" });
-  const initial = createInitialWorkflowState({ topic: "my-topic", request: "Build", runId: "run-1" });
+  const initial = createInitialWorkflowState({ agentModel: "openai/test", topic: "my-topic", request: "Build", runId: "run-1" });
   return { cwd, state: { ...initial, phase: "executing", artifacts: { requirements, tasks }, gates: { plan: planApproval } } };
 }

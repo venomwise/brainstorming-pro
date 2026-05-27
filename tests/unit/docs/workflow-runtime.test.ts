@@ -47,6 +47,22 @@ test("README documents runtime commands, gates, and layout", async () => {
   }
 });
 
+test("README documents workflow agent model selection and persistence", async () => {
+  const readme = await read("README.md");
+  for (const expected of [
+    "provider-qualified workflow agent model",
+    "configured models",
+    "selected `agentModel`",
+    "reuses the workflow's persisted `agentModel`",
+    "without prompting for or patching a workflow model",
+    "pi --list-models",
+    "--model provider/model",
+    "fail closed when an agent-backed phase is invoked without a valid provider-qualified model",
+  ]) {
+    assert.ok(readme.includes(expected), `README should include ${expected}`);
+  }
+});
+
 test("TUI scaffold docs describe snapshot-first foundation and interactive boundary", async () => {
   const tuiReadme = await read("extensions/clarification-orchestrator/tui/README.md");
   for (const expected of [

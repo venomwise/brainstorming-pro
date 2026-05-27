@@ -144,7 +144,3 @@ async function terminalStatePatch(
   };
 }
 
-export const specExecAdapter: PhaseAdapter<WorkflowState, SpecExecAdapterOutput> = createSpecExecAdapter({
-  projectRoot: process.cwd(),
-  model: process.env.BRAINSTORMING_PRO_AGENT_MODEL ?? "openai:gpt-4o-mini",
-});

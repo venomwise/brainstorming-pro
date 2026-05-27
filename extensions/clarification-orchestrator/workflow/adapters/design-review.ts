@@ -60,7 +60,3 @@ export function createDesignReviewAdapter(options: AgentBackedAdapterOptions): P
 };
 }
 
-export const designReviewAdapter: PhaseAdapter<WorkflowState, ReviewPhaseStatus> = createDesignReviewAdapter({
-  projectRoot: process.cwd(),
-  model: process.env.BRAINSTORMING_PRO_AGENT_MODEL ?? "openai:gpt-4o-mini",
-});

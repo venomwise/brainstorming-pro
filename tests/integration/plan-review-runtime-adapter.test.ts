@@ -17,7 +17,7 @@ const readyPlanReviewAdapter: WorkflowAdapter = { run: (state: WorkflowState) =>
 
 test("planning proceeds automatically to plan-review and then awaits plan approval", async () => {
   const cwd = await tempProject();
-  const state = createInitialWorkflowState({ topic: "my-topic", request: "Build", runId: "run-1" });
+  const state = createInitialWorkflowState({ agentModel: "openai/test", topic: "my-topic", request: "Build", runId: "run-1" });
   await saveWorkflowState(cwd, { ...state, phase: "planning", artifacts: { design }, gates: { design: { gate: "design", artifacts: [design], approvedBy: "u", approvedAt: "t", path: "p" } } });
   const runtime = new WorkflowRuntimeOrchestrator(cwd, { adapters: { planning: planningAdapter, "plan-review": readyPlanReviewAdapter } });
   const afterPlanning = await runtime.resumeWorkflow("my-topic");
@@ -29,7 +29,7 @@ test("planning proceeds automatically to plan-review and then awaits plan approv
 
 test("plan review mode input is ignored and execution requires ready reviewed artifacts plus approval", async () => {
   const cwd = await tempProject();
-  const state = createInitialWorkflowState({ topic: "my-topic", request: "Build", runId: "run-1" });
+  const state = createInitialWorkflowState({ agentModel: "openai/test", topic: "my-topic", request: "Build", runId: "run-1" });
   await saveWorkflowState(cwd, { ...state, phase: "plan-review", artifacts: { design, requirements, tasks } });
   const runtime = new WorkflowRuntimeOrchestrator(cwd, { adapters: { "plan-review": readyPlanReviewAdapter } });
   const ignored = await runtime.resumeWorkflow("my-topic", { type: "review-mode", mode: "skip", user: "u" });

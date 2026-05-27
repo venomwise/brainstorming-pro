@@ -12,7 +12,7 @@ test("automatic plan review flow has no implicit skip path", async () => {
   const cwd = await tempProject();
   const adapter: WorkflowAdapter = { run: (state) => ({ ...state, phase: "awaiting-plan-approval", reviewStatus: { plan: { target: "plan", mode: "minimal", status: "passed", artifacts: [], readinessStatus: "ready-for-plan-approval", planReview: { automatic: true, reviewRunId: "r", ledgerPath: "l", readinessStatus: "ready-for-plan-approval", reviewedArtifacts: [] } } } }) };
   const runtime = new WorkflowRuntimeOrchestrator(cwd, { adapters: { "plan-review": adapter } });
-  await saveWorkflowState(cwd, { ...createInitialWorkflowState({ topic: "my-topic", request: "x", runId: "run-1" }), phase: "plan-review" });
+  await saveWorkflowState(cwd, { ...createInitialWorkflowState({ agentModel: "openai/test", topic: "my-topic", request: "x", runId: "run-1" }), phase: "plan-review" });
   const state = await runtime.resumeWorkflow("my-topic");
   assert.equal("phase" in state && state.phase, "awaiting-plan-approval");
   assert.equal("pendingDecision" in state && state.pendingDecision?.type, "approval");

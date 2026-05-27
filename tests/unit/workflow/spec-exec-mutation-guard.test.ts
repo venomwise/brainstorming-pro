@@ -40,6 +40,6 @@ async function fixtureContext(withDesign = false): Promise<Awaited<ReturnType<ty
   const tasks = await writeVersionedArtifact(layout, "tasks", "## Tasks\n- [ ] 1. Do\n  - _Requirements: 1.1_\n");
   const designApproval = design ? await approveGate(layout, { gate: "design", artifacts: [design], approvedBy: "tester" }) : undefined;
   const planApproval = await approveGate(layout, { gate: "plan", artifacts: [requirements, tasks], approvedBy: "tester" });
-  const initial = createInitialWorkflowState({ topic: "my-topic", request: "Build", runId: "run-1" });
+  const initial = createInitialWorkflowState({ agentModel: "openai/test", topic: "my-topic", request: "Build", runId: "run-1" });
   return buildSpecExecAdapterContext(cwd, { ...initial, phase: "executing", artifacts: { ...(design ? { design } : {}), requirements, tasks }, gates: { ...(designApproval ? { design: designApproval } : {}), plan: planApproval } });
 }

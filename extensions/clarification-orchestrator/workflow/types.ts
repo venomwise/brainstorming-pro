@@ -135,6 +135,8 @@ export type WorkflowState = {
   runId: string;
   topic: string;
   request: string;
+  /** Optional only for legacy state files created before workflow agent model persistence. */
+  agentModel?: string;
   supplementalRequests?: Array<{ request: string; receivedAt: string }>;
   contextDesignPath?: string;
   phase: WorkflowPhase;

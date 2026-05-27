@@ -58,7 +58,3 @@ export function createBrainstormingAdapter(options: AgentBackedAdapterOptions): 
   };
 }
 
-export const brainstormingAdapter: PhaseAdapter<WorkflowState, AdapterPhaseResult> = createBrainstormingAdapter({
-  projectRoot: process.cwd(),
-  model: process.env.BRAINSTORMING_PRO_AGENT_MODEL ?? "openai:gpt-4o-mini",
-});

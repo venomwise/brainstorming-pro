@@ -52,7 +52,7 @@ test("runtime commits generated design then generated plan and stops at gates", 
       planning: { run: () => ({ kind: "artifact-commit-request", artifacts: [{ kind: "requirements", content: "# Requirements\n" }, { kind: "tasks", content: tasksMarkdown }] }) },
     },
   });
-  const designed = await runtime.startWorkflow("my-topic", "Build");
+  const designed = await runtime.startWorkflow("my-topic", "Build", "openai/test");
   assert.equal(designed.phase, "awaiting-design-review-decision");
   assert.equal(await fs.readFile(path.join(cwd, "specs", "my-topic", "design.md"), "utf8"), designMarkdown);
 
@@ -70,7 +70,7 @@ test("runtime fails closed for malformed adapter output", async () => {
       designing: { run: () => ({ kind: "failed", error: { kind: "schema-validation-failed", message: "bad output", retryable: false } } satisfies AdapterPhaseResult) },
     },
   });
-  const state = await runtime.startWorkflow("my-topic", "Build");
+  const state = await runtime.startWorkflow("my-topic", "Build", "openai/test");
   assert.equal(state.phase, "failed");
   await assert.rejects(fs.readFile(path.join(cwd, "specs", "my-topic", "design.md"), "utf8"), /ENOENT/u);
 });

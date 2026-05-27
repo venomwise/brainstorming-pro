@@ -15,11 +15,11 @@ test("runtime executes approved tasks, writes report, commits tasks artifact, an
   const requirements = await writeVersionedArtifact(layout, "requirements", "# Requirements\n");
   const tasks = await writeVersionedArtifact(layout, "tasks", `## Tasks\n- [ ] 1. Phase\n  - [ ] 1.1 First\n    - _Requirements: 1.1_\n- [ ] 2. Checkpoint - Verify\n  - _Requirements: 2.1_\n`);
   const planApproval = await approveGate(layout, { gate: "plan", artifacts: [requirements, tasks], approvedBy: "tester" });
-  const initial = createInitialWorkflowState({ topic: "my-topic", request: "Build", runId: "run-1" });
+  const initial = createInitialWorkflowState({ agentModel: "openai/test", topic: "my-topic", request: "Build", runId: "run-1" });
   await saveWorkflowState(cwd, { ...initial, phase: "executing", artifacts: { requirements, tasks }, gates: { plan: planApproval } });
 
   const orchestrator = new WorkflowRuntimeOrchestrator(cwd, { adapters: { executing: { run: async (state) => {
-    const adapter = createSpecExecAdapter({ projectRoot: cwd, model: "openai:gpt-4o-mini", runAgent: completingRunAgent });
+    const adapter = createSpecExecAdapter({ projectRoot: cwd, model: "openai/gpt-4o-mini", runAgent: completingRunAgent });
     const output = await adapter.run(state, state);
     return adapter.commit(output, state);
   } } } });

@@ -26,7 +26,7 @@ async function tempProject() {
 }
 
 async function approvedState(cwd: string): Promise<WorkflowState> {
-  const state = createInitialWorkflowState({ topic: "my-topic", request: "Build", runId: "run-1" });
+  const state = createInitialWorkflowState({ agentModel: "openai/test", topic: "my-topic", request: "Build", runId: "run-1" });
   const design = await writeVersionedArtifact(await createWorkflowLayout(cwd, "my-topic"), "design", "# Design\n");
   return {
     ...state,
@@ -61,7 +61,7 @@ test("spec-plan adapter invokes plan-author and returns commit request", async (
 
 test("spec-plan adapter blocks before child invocation without approval", async () => {
   const cwd = await tempProject();
-  const state = createInitialWorkflowState({ topic: "my-topic", request: "Build", runId: "run-1" });
+  const state = createInitialWorkflowState({ agentModel: "openai/test", topic: "my-topic", request: "Build", runId: "run-1" });
   let called = false;
   const adapter = createSpecPlanAdapter({ projectRoot: cwd, model: "openai:test", async runAgent<TOutput>(request: AgentRunRequest<TOutput>) { called = true; throw new Error(`unexpected ${request.role}`); } });
   const result = await adapter.run({ ...state, phase: "planning" }, state);

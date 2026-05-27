@@ -1,12 +1,13 @@
 import type { ExtensionCommandContext } from "@mariozechner/pi-coding-agent";
 import { tokenizeArgs } from "../options.ts";
 import { validateClarificationTopicSlug } from "../topic-validation.ts";
-import { getStatus, resumeWorkflow, startWorkflow, augmentWorkflow, type RuntimeUserDecision, type WorkflowRuntimeStatus } from "../workflow/runtime.ts";
+import { getStatus, resumeWorkflow, startWorkflow, augmentWorkflow, loadLatestWorkflowState, persistWorkflowAgentModel, type RuntimeUserDecision, type WorkflowRuntimeStatus } from "../workflow/runtime.ts";
 import type { WorkflowState } from "../workflow/types.ts";
 import { WorkflowProgressController } from "../workflow/live-snapshot-store.ts";
 import { openWorkflowLiveSession, type WorkflowTuiContext } from "../tui/workflow-session.ts";
 import { proposeWorkflowTopic } from "../workflow/topic-proposal.ts";
 import { renderWorkflowUxResult } from "../workflow/ux-renderer.ts";
+import { formatLegacyWorkflowAgentModelPatchError, resolveWorkflowAgentModel } from "./workflow-agent-model.ts";
 
 export type BrainstormProOptions =
   | { action: "start"; request: string }
@@ -26,9 +27,9 @@ export async function handleBrainstormProCommand(args: string, ctx: ExtensionCom
     const options = parseBrainstormProArgs(args);
     const cwd = ctx.cwd ?? process.cwd();
     if (options.action === "start") {
-      if (!ctx.model) throw new Error("Starting a new Brainstorming Pro workflow requires a selected model to propose a topic.");
-      const topic = await proposeWorkflowTopic({ request: options.request, model: ctx.model, modelRegistry: ctx.modelRegistry, signal: ctx.signal });
-      const { state } = await startWorkflow({ cwd, topic, request: options.request });
+      const workflowModel = await resolveWorkflowAgentModel(ctx, { reason: "start" });
+      const topic = await proposeWorkflowTopic({ request: options.request, model: workflowModel.model, modelRegistry: ctx.modelRegistry, signal: ctx.signal });
+      const { state } = await startWorkflow({ cwd, topic, request: options.request, agentModel: workflowModel.agentModel });
       await presentWorkflowOperationWithLiveTui(state, ctx, (controller) => resumeWorkflow({ cwd, topic: state.topic, onWorkflowProgress: (event) => { controller.emit(event); } }));
       return;
     }
@@ -43,13 +44,24 @@ export async function handleBrainstormProCommand(args: string, ctx: ExtensionCom
         ctx.ui.notify(renderWorkflowUxResult(initial), "info");
         return;
       }
-      await presentWorkflowOperationWithLiveTui(initial, ctx, (controller) => resumeWorkflow({ cwd, topic: initial.topic, decision: options.decision, onWorkflowProgress: (event) => { controller.emit(event); } }));
+      const state = await loadLatestWorkflowState(cwd, initial.topic);
+      const runnableState = state.agentModel ? state : await resolveAndPersistLegacyWorkflowAgentModel(cwd, initial.topic, ctx);
+      await presentWorkflowOperationWithLiveTui(runnableState, ctx, (controller) => resumeWorkflow({ cwd, topic: runnableState.topic, decision: options.decision, onWorkflowProgress: (event) => { controller.emit(event); } }));
       return;
     }
     const status = await getStatus(cwd, options.topic);
     ctx.ui.notify(renderWorkflowUxResult(status), "info");
   } catch (error) {
     ctx.ui.notify(error instanceof Error ? error.message : String(error), "error");
+  }
+}
+
+async function resolveAndPersistLegacyWorkflowAgentModel(cwd: string, topic: string, ctx: ExtensionCommandContext): Promise<WorkflowState> {
+  const resolved = await resolveWorkflowAgentModel(ctx, { reason: "legacy-resume" });
+  try {
+    return await persistWorkflowAgentModel(cwd, topic, resolved.agentModel);
+  } catch (error) {
+    throw formatLegacyWorkflowAgentModelPatchError(error);
   }
 }
 

@@ -35,7 +35,7 @@ async function tempProject() {
 
 test("agent-backed adapters draft only and do not write runtime authority files", async () => {
   const cwd = await tempProject();
-  const state = createInitialWorkflowState({ topic: "my-topic", request: "Build", runId: "run-1" });
+  const state = createInitialWorkflowState({ agentModel: "openai/test", topic: "my-topic", request: "Build", runId: "run-1" });
   const adapter = createBrainstormingAdapter({
     projectRoot: cwd,
     model: "openai:test",

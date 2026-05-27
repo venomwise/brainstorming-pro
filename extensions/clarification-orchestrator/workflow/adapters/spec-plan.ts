@@ -68,7 +68,3 @@ export function createSpecPlanAdapter(options: AgentBackedAdapterOptions): Phase
   };
 }
 
-export const specPlanAdapter: PhaseAdapter<WorkflowState, AdapterPhaseResult> = createSpecPlanAdapter({
-  projectRoot: process.cwd(),
-  model: process.env.BRAINSTORMING_PRO_AGENT_MODEL ?? "openai:gpt-4o-mini",
-});

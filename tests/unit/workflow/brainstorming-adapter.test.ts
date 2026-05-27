@@ -35,7 +35,7 @@ async function tempProject() {
 
 test("brainstorming adapter invokes design-author and returns commit request", async () => {
   const cwd = await tempProject();
-  const state = createInitialWorkflowState({ topic: "my-topic", request: "Build", runId: "run-1" });
+  const state = createInitialWorkflowState({ agentModel: "openai/test", topic: "my-topic", request: "Build", runId: "run-1" });
   let captured: AgentRunRequest<unknown> | undefined;
   const adapter = createBrainstormingAdapter({
     projectRoot: cwd,
@@ -58,7 +58,7 @@ test("brainstorming adapter invokes design-author and returns commit request", a
 
 test("brainstorming adapter fails closed on child failure", async () => {
   const cwd = await tempProject();
-  const state = createInitialWorkflowState({ topic: "my-topic", request: "Build", runId: "run-1" });
+  const state = createInitialWorkflowState({ agentModel: "openai/test", topic: "my-topic", request: "Build", runId: "run-1" });
   const adapter = createBrainstormingAdapter({
     projectRoot: cwd,
     model: "openai:test",

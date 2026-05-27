@@ -6,7 +6,7 @@ import type { BrainstormingAdapterContext, SpecPlanAdapterContext } from "../../
 import { createInitialWorkflowState } from "../../../extensions/clarification-orchestrator/workflow/runtime.ts";
 import type { VersionedArtifactRef } from "../../../extensions/clarification-orchestrator/workflow/types.ts";
 
-const state = createInitialWorkflowState({ topic: "my-topic", request: "Build", runId: "run-1" });
+const state = createInitialWorkflowState({ agentModel: "openai/test", topic: "my-topic", request: "Build", runId: "run-1" });
 
 test("brainstorming prompt contains required constraints", () => {
   const context: BrainstormingAdapterContext = { topic: "my-topic", runId: "run-1", request: "Build", projectRoot: "/repo", topicDir: "/repo/specs/my-topic", workflow: state };

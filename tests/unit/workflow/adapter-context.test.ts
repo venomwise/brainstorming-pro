@@ -13,7 +13,7 @@ async function tempProject() {
 }
 
 async function stateWithDesign(cwd: string): Promise<WorkflowState> {
-  const state = createInitialWorkflowState({ topic: "my-topic", request: "Build", runId: "run-1" });
+  const state = createInitialWorkflowState({ agentModel: "openai/test", topic: "my-topic", request: "Build", runId: "run-1" });
   const layout = await createWorkflowLayout(cwd, state.topic);
   const design = await writeVersionedArtifact(layout, "design", "# Design\n");
   return { ...state, artifacts: { design } };
@@ -21,7 +21,7 @@ async function stateWithDesign(cwd: string): Promise<WorkflowState> {
 
 test("brainstorming context includes workflow metadata", async () => {
   const cwd = await tempProject();
-  const state = createInitialWorkflowState({ topic: "my-topic", request: "Build", runId: "run-1" });
+  const state = createInitialWorkflowState({ agentModel: "openai/test", topic: "my-topic", request: "Build", runId: "run-1" });
   const context = await buildBrainstormingAdapterContext(cwd, state);
   assert.equal(context.topic, "my-topic");
   assert.equal(context.runId, "run-1");

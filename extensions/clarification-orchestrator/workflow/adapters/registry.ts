@@ -1,15 +1,14 @@
 import { createBrainstormingAdapter } from "./brainstorming.ts";
 import { createSpecPlanAdapter } from "./spec-plan.ts";
-import { createSpecExecAdapter, specExecAdapter } from "./spec-exec.ts";
-import { createAdapterRegistry, type PhaseAdapter } from "./types.ts";
+import { createSpecExecAdapter } from "./spec-exec.ts";
+import type { PhaseAdapter } from "./types.ts";
 import type { AgentBackedAdapterOptions } from "./agent-backed.ts";
 import type { WorkflowAdapter } from "../runtime.ts";
 import type { WorkflowState } from "../types.ts";
-import { createDesignReviewAdapter, designReviewAdapter } from "./design-review.ts";
-import { createPlanReviewAdapter, planReviewAdapter } from "./plan-review.ts";
-import { executionReviewAdapter } from "./execution-review.ts";
+import { createDesignReviewAdapter } from "./design-review.ts";
+import { createPlanReviewAdapter } from "./plan-review.ts";
 
-export function defaultWorkflowAdapters(projectRoot: string, model = process.env.BRAINSTORMING_PRO_AGENT_MODEL ?? "openai:gpt-4o-mini", onWorkflowProgress?: AgentBackedAdapterOptions["onWorkflowProgress"]) {
+export function defaultWorkflowAdapters(projectRoot: string, model: string, onWorkflowProgress?: AgentBackedAdapterOptions["onWorkflowProgress"]) {
   return {
     designing: asWorkflowAdapter(createBrainstormingAdapter({ projectRoot, model, onWorkflowProgress })),
     planning: asWorkflowAdapter(createSpecPlanAdapter({ projectRoot, model, onWorkflowProgress })),
@@ -28,12 +27,3 @@ function asWorkflowAdapter(adapter: PhaseAdapter<WorkflowState>): WorkflowAdapte
     },
   };
 }
-
-export const defaultAdapterRegistry = createAdapterRegistry([
-  createBrainstormingAdapter({ projectRoot: process.cwd(), model: process.env.BRAINSTORMING_PRO_AGENT_MODEL ?? "openai:gpt-4o-mini" }),
-  createSpecPlanAdapter({ projectRoot: process.cwd(), model: process.env.BRAINSTORMING_PRO_AGENT_MODEL ?? "openai:gpt-4o-mini" }),
-  specExecAdapter,
-  designReviewAdapter,
-  planReviewAdapter,
-  executionReviewAdapter,
-]);

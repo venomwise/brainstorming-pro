@@ -44,7 +44,7 @@ async function fixtureState(): Promise<{ cwd: string; layout: Awaited<ReturnType
   const tasks = await writeVersionedArtifact(layout, "tasks", "## Tasks\n- [ ] 1. Do work\n  - _Requirements: 1.1_\n");
   const designApproval = await approveGate(layout, { gate: "design", artifacts: [design], approvedBy: "tester" });
   const planApproval = await approveGate(layout, { gate: "plan", artifacts: [requirements, tasks], approvedBy: "tester" });
-  const initial = createInitialWorkflowState({ topic: "my-topic", request: "Build", runId: "run-1" });
+  const initial = createInitialWorkflowState({ agentModel: "openai/test", topic: "my-topic", request: "Build", runId: "run-1" });
   return {
     cwd,
     layout,

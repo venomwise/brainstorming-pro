@@ -7,6 +7,7 @@ import { appendWorkflowEvent } from "./events.ts";
 import { artifactProgress, phaseProgress } from "./progress-adapters.ts";
 import { transition, type TransitionContext } from "./state-machine.ts";
 import { defaultWorkflowAdapters } from "./adapters/registry.ts";
+import { validateProviderQualifiedModel } from "../runtime/agent-execution/model-policy.ts";
 import { isAdapterPhaseResult, type AdapterPhaseResult } from "./adapters/types.ts";
 import type { ApprovalRef, PendingGateBinding, ReviewDecisionRef, ReviewMode, ReviewPhaseStatus, UserDecisionRequest, VersionedArtifactRef, WorkflowErrorSnapshot, WorkflowPhase, WorkflowState } from "./types.ts";
 import type { DesignReviewPanelResult } from "./adapters/design-review/types.ts";
@@ -20,6 +21,7 @@ export type WorkflowBootstrapInput = {
   cwd: string;
   topic: string;
   request: string;
+  agentModel: string;
   now?: Date;
   runId?: string;
 };
@@ -81,7 +83,7 @@ export type RuntimeUserDecision =
 // lifecycle transitions. Do not add generic subagent orchestration, arbitrary
 // chains, or background async runner behavior to this boundary.
 export type BrainstormingProToolInput =
-  | { action: "start"; cwd: string; topic: string; request: string }
+  | { action: "start"; cwd: string; topic: string; request: string; agentModel: string }
   | { action: "augment"; cwd: string; topic: string; request: string }
   | { action: "resume"; cwd: string; topic?: string; decision?: RuntimeUserDecision }
   | { action: "status"; cwd: string; topic?: string };
@@ -121,12 +123,15 @@ export function getWorkflowRuntimePaths(cwd: string, topic: string, runId: strin
 export function createInitialWorkflowState(input: Omit<WorkflowBootstrapInput, "cwd"> & { runId?: string }): WorkflowState {
   validateClarificationTopicSlug(input.topic);
   if (!input.request.trim()) throw new Error("Workflow request cannot be empty.");
+  const modelValidation = validateProviderQualifiedModel(input.agentModel);
+  if (!modelValidation.ok) throw new Error(modelValidation.error.message);
   const now = (input.now ?? new Date()).toISOString();
   return {
     version: 1,
     runId: input.runId ?? createWorkflowRunId(input.now),
     topic: input.topic,
     request: input.request,
+    agentModel: modelValidation.model,
     phase: "designing",
     createdAt: now,
     updatedAt: now,
@@ -154,6 +159,7 @@ export async function augmentWorkflow(input: WorkflowAugmentInput): Promise<{ st
     ...previous,
     runId: input.runId ?? createWorkflowRunId(input.now),
     request: input.request,
+    agentModel: previous.agentModel,
     supplementalRequests: [...(previous.supplementalRequests ?? []), { request: input.request, receivedAt: now }],
     contextDesignPath: previous.artifacts.design?.path ?? "design.md",
     phase: "designing",
@@ -174,16 +180,18 @@ export async function augmentWorkflow(input: WorkflowAugmentInput): Promise<{ st
 export class WorkflowRuntimeOrchestrator {
   private readonly cwd: string;
   private readonly adapters: Partial<Record<WorkflowPhase, WorkflowAdapter>>;
+  private readonly useDefaultAdapters: boolean;
   private readonly onWorkflowProgress?: (event: WorkflowProgressEvent) => void | Promise<void>;
 
   constructor(cwd: string, options: WorkflowRuntimeOptions = {}) {
     this.cwd = cwd;
     this.onWorkflowProgress = options.onWorkflowProgress;
-    this.adapters = options.useDefaultAdapters ? { ...defaultWorkflowAdapters(cwd, undefined, options.onWorkflowProgress), ...(options.adapters ?? {}) } : (options.adapters ?? {});
+    this.useDefaultAdapters = options.useDefaultAdapters ?? false;
+    this.adapters = options.adapters ?? {};
   }
 
-  async startWorkflow(topic: string, request: string): Promise<WorkflowState> {
-    const { state } = await startWorkflow({ cwd: this.cwd, topic, request });
+  async startWorkflow(topic: string, request: string, agentModel: string): Promise<WorkflowState> {
+    const { state } = await startWorkflow({ cwd: this.cwd, topic, request, agentModel });
     return this.runActivePhase(state);
   }
 
@@ -211,7 +219,7 @@ export class WorkflowRuntimeOrchestrator {
   }
 
   private async runActivePhase(state: WorkflowState): Promise<WorkflowState> {
-    const adapter = this.adapters[state.phase];
+    const adapter = this.createAdaptersForState(state)[state.phase];
     if (!adapter) return saveWorkflowState(this.cwd, withPendingDecision(state));
     try {
       await this.emitProgress({ type: "phase.started", topic: state.topic, runId: state.runId, phase: state.phase, at: new Date().toISOString(), status: "running", activity: `Running ${state.phase}` });
@@ -222,6 +230,14 @@ export class WorkflowRuntimeOrchestrator {
     } catch (error) {
       return saveWorkflowState(this.cwd, { ...state, phase: "blocked", lastError: { message: error instanceof Error ? error.message : String(error), phase: state.phase, recoverable: true, occurredAt: new Date().toISOString() }, updatedAt: new Date().toISOString() });
     }
+  }
+
+  private createAdaptersForState(state: WorkflowState): Partial<Record<WorkflowPhase, WorkflowAdapter>> {
+    if (!this.useDefaultAdapters) return this.adapters;
+    if (!state.agentModel) throw new Error("Workflow agent model is required before running agent-backed phases.");
+    const validation = validateProviderQualifiedModel(state.agentModel);
+    if (!validation.ok) throw new Error(validation.error.message);
+    return { ...defaultWorkflowAdapters(this.cwd, validation.model, this.onWorkflowProgress), ...this.adapters };
   }
 
   private async applyAdapterResult(state: WorkflowState, result: Partial<WorkflowState> | AdapterPhaseResult | void): Promise<WorkflowState> {
@@ -299,7 +315,7 @@ export async function getStatus(cwd: string, topic?: string): Promise<WorkflowRu
 }
 
 export async function invokeBrainstormingProRuntime(input: BrainstormingProToolInput): Promise<BrainstormingProToolResult> {
-  if (input.action === "start") return startWorkflow({ cwd: input.cwd, topic: input.topic, request: input.request });
+  if (input.action === "start") return startWorkflow({ cwd: input.cwd, topic: input.topic, request: input.request, agentModel: input.agentModel });
   if (input.action === "augment") return augmentWorkflow({ cwd: input.cwd, topic: input.topic, request: input.request });
   if (input.action === "resume") return resumeWorkflow({ cwd: input.cwd, topic: input.topic, decision: input.decision });
   return getStatus(input.cwd, input.topic);
@@ -318,6 +334,17 @@ export async function saveWorkflowState(cwd: string, state: WorkflowState): Prom
   await fs.mkdir(paths.workflowDir, { recursive: true });
   await fs.writeFile(paths.statePath, `${JSON.stringify(state, null, 2)}\n`);
   return state;
+}
+
+export async function persistWorkflowAgentModel(cwd: string, topic: string, agentModel: string): Promise<WorkflowState> {
+  const validation = validateProviderQualifiedModel(agentModel);
+  if (!validation.ok) throw new Error(`Legacy workflow still lacks a valid agentModel: ${validation.error.message}`);
+  const state = await loadLatestWorkflowState(cwd, topic);
+  return saveWorkflowState(cwd, {
+    ...state,
+    agentModel: validation.model,
+    updatedAt: new Date().toISOString(),
+  });
 }
 
 export async function discoverWorkflowTopics(cwd: string): Promise<string[]> {

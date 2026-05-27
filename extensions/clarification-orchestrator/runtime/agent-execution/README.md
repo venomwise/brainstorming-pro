@@ -31,6 +31,7 @@ All first-version child invocations preserve these invariants:
 - Max child depth is `1`; child processes cannot launch nested child agents.
 - `index.ts` skips `/brainstorm-pro` command registration in child mode.
 - Provider-qualified model validation runs before spawn.
+- Phase adapters pass the workflow state's persisted `agentModel`; the execution runtime does not choose hidden environment or hardcoded model defaults.
 - Output is bounded and untrusted until caller-supplied schema validation succeeds.
 
 ## Product boundary
@@ -49,7 +50,7 @@ The runtime is tested with deterministic fake child processes instead of real LL
 
 ## Adapter usage sketch
 
-Phase adapters should provide the role, prompt, system prompt, provider-qualified model, workflow context, and a business-specific output schema:
+Phase adapters should provide the role, prompt, system prompt, provider-qualified model from the persisted workflow `agentModel`, workflow context, and a business-specific output schema:
 
 ```ts
 const result = await runAgent({

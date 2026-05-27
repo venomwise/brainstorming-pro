@@ -12,7 +12,7 @@ import type { MinimalDesignReviewOutput } from "../../extensions/clarification-o
 
 async function prepared(output: MinimalDesignReviewOutput) {
   const cwd = await fs.mkdtemp(path.join(os.tmpdir(), "bp-design-review-integration-"));
-  const started = await startWorkflow({ cwd, topic: "my-topic", request: "Build it", runId: "run-1" });
+  const started = await startWorkflow({ cwd, agentModel: "openai/test", topic: "my-topic", request: "Build it", runId: "run-1" });
   const layout = await createWorkflowLayout(cwd, "my-topic");
   const ref = await writeVersionedArtifact(layout, "design", "# Design");
   await saveWorkflowState(cwd, { ...started.state, phase: "awaiting-design-review-decision", artifacts: { design: ref } });

@@ -17,7 +17,7 @@ const tasks: VersionedArtifactRef = { kind: "tasks", version: 1, path: ".workflo
 test("runtime happy path through review and approval gates", async () => {
   const cwd = await tempProject();
   const runtime = new WorkflowRuntimeOrchestrator(cwd);
-  const initial = createInitialWorkflowState({ topic: "my-topic", request: "Build", runId: "run-1" });
+  const initial = createInitialWorkflowState({ agentModel: "openai/test", topic: "my-topic", request: "Build", runId: "run-1" });
   await saveWorkflowState(cwd, { ...initial, phase: "awaiting-design-review-decision", artifacts: { design } });
   await runtime.resumeWorkflow("my-topic", { type: "review-mode", mode: "skip", user: "u" });
   const designReviewed = await runtime.resumeWorkflow("my-topic");
@@ -25,7 +25,7 @@ test("runtime happy path through review and approval gates", async () => {
   await runtime.resumeWorkflow("my-topic", { type: "approval", action: "approve", user: "u" });
   const designApproved = await runtime.resumeWorkflow("my-topic");
   assert.equal("phase" in designApproved && designApproved.phase, "planning");
-  const planning = createInitialWorkflowState({ topic: "my-topic", request: "Build", runId: "run-1" });
+  const planning = createInitialWorkflowState({ agentModel: "openai/test", topic: "my-topic", request: "Build", runId: "run-1" });
   await saveWorkflowState(cwd, { ...planning, phase: "awaiting-plan-approval", artifacts: { design, requirements, tasks }, reviewStatus: { plan: { target: "plan", mode: "minimal", status: "passed", artifacts: [requirements, tasks], planReview: { automatic: true, reviewRunId: "review-1", ledgerPath: ".workflow/reviews/plan/review-1", readinessStatus: "ready-for-plan-approval", reviewedArtifacts: [requirements, tasks] } } } });
   const planReviewed = await runtime.resumeWorkflow("my-topic");
   assert.equal("phase" in planReviewed && planReviewed.phase, "awaiting-plan-approval");

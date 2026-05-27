@@ -18,8 +18,8 @@ async function tempProject() {
 test("resume rendering with multiple topics requires selection and does not advance", async () => {
   const cwd = await tempProject();
   const runtime = new WorkflowRuntimeOrchestrator(cwd);
-  await saveWorkflowState(cwd, { ...createInitialWorkflowState({ topic: "alpha-topic", request: "a", runId: "run-1" }), phase: "awaiting-design-review-decision", artifacts: { design } });
-  await saveWorkflowState(cwd, { ...createInitialWorkflowState({ topic: "beta-topic", request: "b", runId: "run-1" }), phase: "awaiting-design-review-decision", artifacts: { design } });
+  await saveWorkflowState(cwd, { ...createInitialWorkflowState({ agentModel: "openai/test", topic: "alpha-topic", request: "a", runId: "run-1" }), phase: "awaiting-design-review-decision", artifacts: { design } });
+  await saveWorkflowState(cwd, { ...createInitialWorkflowState({ agentModel: "openai/test", topic: "beta-topic", request: "b", runId: "run-1" }), phase: "awaiting-design-review-decision", artifacts: { design } });
 
   const result = await runtime.resumeWorkflow();
   const output = renderWorkflowUxResult(result);
@@ -34,7 +34,7 @@ test("resume rendering with multiple topics requires selection and does not adva
 test("status and resume rendering show artifacts and pending decisions", async () => {
   const cwd = await tempProject();
   const runtime = new WorkflowRuntimeOrchestrator(cwd);
-  await saveWorkflowState(cwd, { ...createInitialWorkflowState({ topic: "decision-topic", request: "x", runId: "run-1" }), phase: "awaiting-design-review-decision", artifacts: { design } });
+  await saveWorkflowState(cwd, { ...createInitialWorkflowState({ agentModel: "openai/test", topic: "decision-topic", request: "x", runId: "run-1" }), phase: "awaiting-design-review-decision", artifacts: { design } });
 
   const statusOutput = renderWorkflowUxResult(await runtime.getStatus("decision-topic"));
   assert.match(statusOutput, /Phase: awaiting-design-review-decision/);
@@ -49,8 +49,8 @@ test("status and resume rendering show artifacts and pending decisions", async (
 test("blocked and failed resume rendering returns diagnostics rather than active phase advancement", async () => {
   const cwd = await tempProject();
   const runtime = new WorkflowRuntimeOrchestrator(cwd);
-  await saveWorkflowState(cwd, { ...createInitialWorkflowState({ topic: "blocked-topic", request: "x", runId: "run-1" }), phase: "blocked", artifacts: { design, requirements, tasks }, lastError: { message: "needs attention", phase: "plan-review", recoverable: true, occurredAt: "2026-05-12T00:00:00.000Z" } });
-  await saveWorkflowState(cwd, { ...createInitialWorkflowState({ topic: "failed-topic", request: "x", runId: "run-1" }), phase: "failed", artifacts: { design }, lastError: { message: "bad output", phase: "designing", recoverable: false, occurredAt: "2026-05-12T00:00:00.000Z" } });
+  await saveWorkflowState(cwd, { ...createInitialWorkflowState({ agentModel: "openai/test", topic: "blocked-topic", request: "x", runId: "run-1" }), phase: "blocked", artifacts: { design, requirements, tasks }, lastError: { message: "needs attention", phase: "plan-review", recoverable: true, occurredAt: "2026-05-12T00:00:00.000Z" } });
+  await saveWorkflowState(cwd, { ...createInitialWorkflowState({ agentModel: "openai/test", topic: "failed-topic", request: "x", runId: "run-1" }), phase: "failed", artifacts: { design }, lastError: { message: "bad output", phase: "designing", recoverable: false, occurredAt: "2026-05-12T00:00:00.000Z" } });
 
   const blockedOutput = renderWorkflowUxResult(await runtime.resumeWorkflow("blocked-topic"));
   assert.match(blockedOutput, /Blocked workflow diagnostics/);
